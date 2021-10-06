@@ -1,0 +1,148 @@
+; test pwm
+
+; memory addresses for a bunch of stuff
+
+zARG0	equ $f0         ; screen position offset
+zARG1	equ $f2         ; screen position offset
+zTMP0	equ $f8         ; screen position offset
+zTMP1	equ $f9         ; POKEY channel offset, 0 is ch1, 1 is ch2, etc
+zTMP2	equ $fa         ; volume buffer for drawing the screen, also temporary printnote backup
+zTMP3	equ $fb         ; "does AUDCTL have the Poly9 bit?" backup between loops
+zTMP4	equ $fc         ; AUDCTL backup between loops
+zTMP5	equ $fd         ; "does AUDCTL have the 15khz bit?" backup between loops
+zINDEX  equ $fe         ; Channel number index, useful for Stereo POKEY
+VDSLST	equ $200        ; Vector to Display List Interrupt (DLI) routine
+VVBLKI	equ $222        ; Vertical Blank Immediate (VBI) register
+KEY	equ $2fc        ; internal hardware value for the last key pressed
+MODUL	equ $4000	; address of RMT module, hardcoded to the .rmt file itself
+pm	equ $a800       ; player
+mis	equ $a980       ; missile
+scr	equ $aa00       ; screen
+SETVBV	equ $e45c       ; set system timers during the VBLANK routine
+FONT    equ $bc00       ; custom font location
+VISDATA equ $9000       ; all the data like text strings, lookup tables for notes, etc
+
+;*******************************************************************;
+;* begin code for the visual player                                *;
+;* initialisation and clear memory before executing the next parts *;
+;*******************************************************************;
+
+	icl "hw.asm"                        ; a8 hardware registers
+	icl "rmtplayr.a65"	            ; include RMT player routines
+      
+        org $8000                           ; RMT Visualizer address, this leaves 16k for the RMT module, should be plenty for most cases
+start
+        mwa #dlist rDLISTL                  ; Display Lists address
+	jsr rmt_silence                     ; flush all POKEY registers in case leftover data is present
+        ldx #$FF
+        lda #0
+start_loop 
+        ldy #4                              ; index y is 4, the loop runs once every 4 frames
+start_loop2        
+        jsr wait_for_vblank                 ; wait for vblank, a simple subroutine but works
+        mwa #dlist rDLISTL                  ; for some reason, the display list address must be loaded each frame, or garbage is output...
+        mva #0 rCOLBK                       ; black background colour, must also be written each frame for some reason, most likely related to DLIST...
+start_loop3 
+        stx rCOLPF2                         ; the value from index x is written in the playfield colour 2 register for a simple fadeing effect
+        dey                                 ; decrement index y, once per frame
+        bne start_loop2                     ; return to the wait for vblank part if index y is not 0
+        txa                                 ; copy the value of index x to the accumulator
+        sub #$11                            ; substract #$11 from it
+        tax                                 ; overwrite the value held in index x
+        cpx #0                              ; is the value of index x 0?
+        bne start_loop                      ; nope, start executing the loop again
+
+mainloop
+	mwa #vbi VVBLKI      ; write our own vbi address to it
+	mva #$40 rNMIEN	     ; enable vbi interrupts
+	mva #$0F rCOLPF1
+	mva #0 rCOLPF2
+	sta zARG1
+	ldx #40                             ; 40 characters
+	mva:rne txt_test1-1,x scr-1,x-
+
+loop_write        
+        mva #0 zTMP0
+        sta rAUDF1
+        sta rAUDF3        
+        lda #$8c
+        sta rAUDF1
+        sta rAUDF3
+        lda #$A8
+        sta rAUDC1
+        sta rAUDC3
+        lda #5
+        sta rAUDCTL
+        mva #8 zTMP1
+
+loop_restart
+        ldy #$3f
+loop_ad_infinitum 
+        lda #$8d
+        sta rAUDF3
+loop_ad_infinitum_2
+        dey
+        bne loop_ad_infinitum
+loop_ad_infinitum_3
+        lda #$8c
+        sta rAUDF3
+loop_ad_infinitum_4
+        dec zTMP1
+        bne loop_restart
+loop_ad_infinitum_5
+        lda zTMP1
+        cmp #8
+        bne loop_ad_infinitum_5
+        jmp loop_restart
+
+vbi
+        ldx #$8c
+        stx rAUDF3
+        inc zTMP0
+        inc zARG1
+        lda zARG1
+        cmp #10
+        bne no_colour_update
+        lda #0
+        sta zARG1
+	mva zARG0 rCOLBK
+	tax
+	inx
+	stx zARG0
+	mva #8 zTMP1
+	
+no_colour_update	
+	pla
+	tay
+	pla
+	tax
+	pla
+	rti
+
+; wait for vblank subroutine
+
+wait_for_vblank
+        lda RTCLOK+2
+wait
+        cmp RTCLOK+2
+        beq wait
+        rts
+
+txt_test1
+	dta d"     Testing some stupid stuff...       "
+       ;dta d"  Mono Playback, 2nd POKEY Disabled.    " ; template
+
+; display lists related stuff
+
+dlist
+	dta $70,$70,$30
+	dta $42,a(scr)
+	:11 dta $02
+	dta $82
+	:12 dta $02
+	dta $41,a(dlist)
+
+        run start
+
+; that's all... ;-)
+
