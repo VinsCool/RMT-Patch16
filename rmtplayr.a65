@@ -1,5 +1,5 @@
 ;*************************************************************************************************;
-;* RMT 1.28(1.30) Tuning Patch 16 (05-10-2021 - Beta8) by VinsCool                               *;
+;* RMT 1.28(1.30) Tuning Patch 16 (15-10-2021 - Beta9) by VinsCool                               *;
 ;* Based on RMT 1.28 Patch 8 (07-02-2015) by Analmux                                             *;
 ;*                                                                                               *;
 ;* Raster Music Tracker, RMT Atari routine version 1.20090108                                    *;
@@ -24,7 +24,7 @@
 
 ; Many things seem to be hardcoded to Raster Music Tracker...
 
-FEAT_IS_TRACKER equ 0
+FEAT_IS_TRACKER equ 1
 
 ; There are many things tightly related to RMT Visualizer exclusively, they can be skipped otherwise.
 
@@ -32,12 +32,12 @@ FEAT_IS_VISUALP equ 0
 
 ; Simple RMT Player is a simple recreation of the original .xex export player from RMT, with some changes
 
-FEAT_IS_SIMPLEP equ 1
+FEAT_IS_SIMPLEP equ 0
 
 ; Stereo mode definition may be defined elsewhere for easier changes, otherwise it is defined here.
 
         IFT FEAT_IS_VISUALP==0&&FEAT_IS_SIMPLEP==0
-STEREOMODE	equ 0	; 0 => compile RMTplayer for 4 tracks mono
+STEREOMODE	equ 1	; 0 => compile RMTplayer for 4 tracks mono
 			; 1 => compile RMTplayer for 8 tracks stereo
 			; 2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
 			; 3 => compile RMTplayer for 4 tracks stereo L1 L2 R3 R4
@@ -76,9 +76,7 @@ tmp      		org *+1
 tmp2      		org *+1
 tmp3      		org *+1
 v_audctl                org *+1
-;	IFT STEREOMODE==1
 v_audctl2               org *+1
-;	EIF
 
 ; RMT Visualiser hack
         IFT FEAT_IS_VISUALP==1
@@ -88,12 +86,11 @@ v_second		org *+1
 v_minute		org *+1
 v_region      		org *+1
 v_volume        	org *+TRACKS
+	EIF
+
 ; SKCTL hack for Two-Tone Filter
 v_skctl			org *+1
-        IFT STEREOMODE==1
 v_skctl2		org *+1
-        EIF
-        EIF
 
 	IFT FEAT_COMMAND2
 frqaddcmd2      	org *+1
@@ -587,14 +584,8 @@ rmt_silence
 	ldy #3   ; when stereo, same as below applies
 	sty $d20f
 	sty $d21f
-        
-        IFT FEAT_IS_VISUALP==1
         sty v_skctl
-        
-        IFT STEREOMODE==1
         sty v_skctl2
-	EIF
-	EIF
 	
 	ldy #8
 
@@ -608,10 +599,7 @@ si1	sta $d200,y
 	sta $d208
 	ldy #3   ; set to #3 for normal mode, #$8B will enable Two-Tone permanently
 	sty $d20f
-
-        IFT FEAT_IS_VISUALP==1
 	sty v_skctl
-	EIF
 
 	ldy #8
 
@@ -649,7 +637,7 @@ nn0
 	ror v_ord
 	EIF
 	EIF
-	IFT FEAT_IS_SIMPLEP&&EXPORTOBX
+	IFT FEAT_IS_SIMPLEP
 	lda loop+1
 	add #16
 	sta loop+1              ; change the rasterbar colour every pattern played
@@ -1425,31 +1413,32 @@ cmd7
 	IFT FEAT_COMMAND7SETNOTE
 	lda reg3
 	IFT FEAT_COMMAND7VOLUMEONLY
-	cmp #$FF ; FF is unlikely with AUDCTL in normal situation
+	cmp #$FF 		; FF is unlikely with AUDCTL in normal situation
 	beq cmd7a
-	cmp #$FE ; FE is unlikely with AUDCTL in normal situation
+	cmp #$FE 		; FE is unlikely with AUDCTL in normal situation
 	beq cmd7c
-	cmp #$FD ; FD is unlikely with AUDCTL in normal situation
-	bne cmd7f ; failsafe if no values are matching
-cmd7b	; disable Two-Tone Filter
+	cmp #$FD 		; FD is unlikely with AUDCTL in normal situation
+	bne cmd7f 		; failsafe if no values are matching
+cmd7b				; disable Two-Tone Filter
 	lda #3
-	bne cmd7d ; unconditional
-cmd7c	; toggle Two-Tone Filter
+	bne cmd7d 		; unconditional
+cmd7c				; toggle Two-Tone Filter
 	lda #$8B
 cmd7d
 	cpx #4
-	bcc cmd7e ; less than 4
-	sta $d21f ; SKCTL, Right POKEY
-	bcs cmd7f ; carry flag still set, unconditional
+	bcc cmd7e		; less than 4
+	sta v_skctl2		; SKCTL, Right POKEY 
+	
+	bcs cmd7f		; carry flag still set, unconditional
 cmd7e
-	sta $d20f ; SKCTL, Left POKEY 
+	sta v_skctl		; SKCTL, Left POKEY
 	EIF
 cmd7f
-	lda trackn_note,x ; this is the expected variable in memory
+	lda trackn_note,x 	; this is the expected variable in memory
 	jmp cmd0a
 	EIF
 	IFT FEAT_COMMAND7VOLUMEONLY
-cmd7a	; volume only mode
+cmd7a				; volume only mode
 	lda trackn_audc,x
 	ora #$f0
 	sta trackn_audc,x
@@ -1690,11 +1679,8 @@ SetPokey
 	sta $d206
 	stx $d207
 	sty $d208
-
-        IFT FEAT_IS_VISUALP==1
 	lda v_skctl
 	sta $d20f
-	EIF
 
 	ELI STEREOMODE==1		; L1 L2 L3 L4 R1 R2 R3 R4, STEREO (Mode 1)
 	ldy v_audctl2
@@ -1733,13 +1719,10 @@ SetPokey
 	lda v_audctl
 	sty $d218
 	sta $d208
-
-        IFT FEAT_IS_VISUALP==1	
 	lda v_skctl
 	sta $d20f
 	lda v_skctl2
 	sta $d21f
-	EIF
 	
 	ELI STEREOMODE==2		; L1 R2 R3 L4, STEREO (Mode 2)
 	ldy v_audctl
@@ -1764,6 +1747,9 @@ SetPokey
 	sta $d210+6
 	sty $d218
 	sty $d208
+	lda v_skctl
+	sta $d20f
+	sta $d21f
 	
 	ELI STEREOMODE==3		; L1 L2 R3 R4, STEREO (Mode 3)
 	ldy v_audctl
@@ -1787,6 +1773,9 @@ SetPokey
 	sta $d200+6
 	sty $d218
 	sty $d208
+	lda v_skctl
+	sta $d20f
+	sta $d21f
 	
 	ELI STEREOMODE==4		; LR1 LR2 LR3 LR4, MONO (Mode 4)
 	ldy v_audctl
@@ -1816,12 +1805,9 @@ SetPokey
 	stx $d217
         sty $d208
 	sty $d218
-
-        IFT FEAT_IS_VISUALP	
 	lda v_skctl
 	sta $d20f
 	sta $d21f
-	EIF
 	EIF
 	rts                     ; IMPORTANT TO NOT ACCIDENTALLY DELETE!
 
@@ -1858,3 +1844,16 @@ StopInstrument                  ; I think?
         rts 
         EIF
 
+	org $3F00 ; RMT8 HEADER and some other placeholder stuff?
+ExtraRMTStuff
+	dta $52,$4D,$54,$38,$40,$40,$01,$00,$10,$3F,$00,$00,$00,$00,$90,$3F
+	dta $00,$40,$00,$41,$00,$42,$00,$43,$00,$44,$00,$45,$00,$46,$00,$47
+	dta $00,$48,$00,$49,$00,$4A,$00,$4B,$00,$4C,$00,$4D,$00,$4E,$00,$4F
+	dta $00,$50,$00,$51,$00,$52,$00,$53,$00,$54,$00,$55,$00,$56,$00,$57
+	dta $00,$58,$00,$59,$00,$5A,$00,$5B,$00,$5C,$00,$5D,$00,$5E,$00,$5F
+	dta $00,$60,$00,$61,$00,$62,$00,$63,$00,$64,$00,$65,$00,$66,$00,$67
+	dta $00,$68,$00,$69,$00,$6A,$00,$6B,$00,$6C,$00,$6D,$00,$6E,$00,$6F
+	dta $00,$70,$00,$71,$00,$72,$00,$73,$00,$74,$00,$75,$00,$76,$00,$77
+	dta $00,$78,$00,$79,$00,$7A,$00,$7B,$00,$7C,$00,$7D,$00,$7E,$00,$7F
+	dta $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FE,$00,$90,$3F
+	
