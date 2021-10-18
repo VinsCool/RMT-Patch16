@@ -1842,7 +1842,6 @@ StopInstrument                  ; I think?
         sta trackn_instrdb,x
         sta trackn_audc,x
         rts 
-        EIF
 
 	org $3F00 ; RMT8 HEADER and some other placeholder stuff?
 ExtraRMTStuff
@@ -1856,4 +1855,4 @@ ExtraRMTStuff
 	dta $00,$70,$00,$71,$00,$72,$00,$73,$00,$74,$00,$75,$00,$76,$00,$77
 	dta $00,$78,$00,$79,$00,$7A,$00,$7B,$00,$7C,$00,$7D,$00,$7E,$00,$7F
 	dta $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FE,$00,$90,$3F
-	
+	EIF
