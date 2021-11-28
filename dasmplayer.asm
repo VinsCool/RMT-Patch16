@@ -2,7 +2,8 @@
 ;* Simple RMT Player                            *;
 ;* Recreation from disassembled code            *;
 ;* Original version by Raster/C.P.U., 2003-2004 *;
-;* Recreation by VinsCool, 05-10-2021           *;
+;* Recreation by VinsCool                       *;
+;* Version 2, 28-10-2021                        *;
 ;************************************************;
 
 ; chose between the Atari Executable (.obx) or SAP format, must be either one (not both or none!)
@@ -16,7 +17,7 @@ STARTLINE	equ 0
 
 ; Stereo mode, copied over from 'rmtplayr.a65' for easier access during edit
 
-STEREOMODE	equ 0		; 0 => compile RMTplayer for 4 tracks Mono
+STEREOMODE	equ 1		; 0 => compile RMTplayer for 4 tracks Mono
 				; 1 => compile RMTplayer for 8 tracks Stereo 
 				; 2 => compile RMTplayer for 4 tracks Stereo 
 				; 3 => compile RMTplayer for 4 tracks Stereo 
@@ -24,7 +25,7 @@ STEREOMODE	equ 0		; 0 => compile RMTplayer for 4 tracks Mono
 
 ; playback speed will be adjusted accordingly in the other region
 
-REGIONPLAYBACK	equ 1		; 0 => PAL
+REGIONPLAYBACK	equ 0		; 0 => PAL
 				; 1 => NTSC
 
 ; screen line for synchronization, important to set with a good value to get smooth execution
@@ -99,6 +100,7 @@ subtune
 ; begin Simple RMT Player
 
 	IFT EXPORTOBX
+
 	org $3E00
 start       
 	ldx #0			; disable playfield and the black colour value
