@@ -1,130 +1,313 @@
 ; Include with 'rmtplayr.a65'
+	
+	org TABLES	; $B000
+	
+; So big re-organisation ahead:
 
-;*********************************************************************;
-;* Start of the entire block for Tuning Tables, Vibrato, Volume, etc *;
-;*********************************************************************;
-		
-	org TABLES
+; Assign 1 memory page per distortion, and leave the remaining for use with custom data.
+; That means I need to re-arrange everything again, so let's do just that.
 
-tabbeganddistor_64khz
-	dta frqtabpure_64khz-frqtab_64khz,$00
-	dta frqtabpoly5_64khz-frqtab_64khz,$20
-	dta frqtabpure_64khz-frqtab_64khz,$40
-	dta frqtabbuzzy_64khz-frqtab_64khz,$c0
-	dta frqtabpure_64khz-frqtab_64khz,$80
-	dta frqtabpure_64khz-frqtab_64khz,$a0
-	dta frqtabbuzzy_64khz-frqtab_64khz,$c0
-	dta frqtabgritty_64khz-frqtab_64khz,$c0 
+; Flags can be used, so 16-bit will be easy enough, #$80 for the table's MSB, add #$40 to that value for the 16-bit's LSB counterpart
+; 64khz is the easiest one: it's going to be the pointer's MSB, and #$00 is automatically assigned for the LSB, so effortless tuning pointers
 
-	org TABLES+$10
+; Now what I am unsure of is which of 15khz or 1.79mhz I would use? 
+; I can only have a full 64 bytes (#$3F) left if I plan to use the same page for each common tables if 16-bit also exists within the same page
 
-tabbeganddistor_15khz
-	dta frqtabpure_15khz-frqtab_15khz,$00
-	dta frqtabpure_15khz-frqtab_15khz,$20
-	dta frqtabpure_15khz-frqtab_15khz,$40
-	dta frqtabbuzzy_15khz-frqtab_15khz,$c0
-	dta frqtabpure_15khz-frqtab_15khz,$80
-	dta frqtabpure_15khz-frqtab_15khz,$a0
-	dta frqtabbuzzy_15khz-frqtab_15khz,$c0
-	dta frqtabbuzzy_15khz-frqtab_15khz,$c0
+; Will think more about this later... but as for Distortions, 64khz will definitely be set to every page, and position 0
+; 16-bit makes sense to be used in the same location, using the #$80 flag to offset the LSB, as well as definining it to be active in a valid channel
+; So again, what remains is both 1.79mhz tables, 15khz tables, and a handful of extra ones for certain combinations...
+; There's also the concern from all the unallocated/duplicate pages, such as the Distortion 0 and 8 noise, or Distortion 6 altogether...
 
-	org TABLES+$20
+; Let's not bother with these details just yet!
 
-tabbeganddistor_179mhz
-	dta frqtabpoly5_179mhz-frqtab_179mhz,$00
-	dta frqtabpoly5_179mhz-frqtab_179mhz,$20
-	dta frqtabpoly5_179mhz-frqtab_179mhz,$40
-	dta frqtabbuzzy_179mhz-frqtab_179mhz,$c0
-	dta frqtabpoly5_179mhz-frqtab_179mhz,$80
-	dta frqtabpure_179mhz-frqtab_179mhz,$a0
-	dta frqtabbuzzy_179mhz-frqtab_179mhz,$c0
-	dta frqtabgritty_179mhz-frqtab_179mhz,$c0
+; For now, I'll get the easiest one done as a proof of concept: 64khz
+; Maybe 16-bit as well if this is proven to be a reliable setup...
 
-	org TABLES+$30
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 
-tabbeganddistor_16bit_lo
-	dta frqtabpure_64khz-frqtab_64khz,$00
-	dta frqtabpoly5_64khz-frqtab_64khz,$20
-	dta frqtabpure_64khz-frqtab_64khz,$40
-	dta frqtabbuzzy_64khz-frqtab_64khz,$c0
-	dta frqtabpure_64khz-frqtab_64khz,$80
-	dta frqtabpure_lo-frqtab_16bit,$a0
-	;dta clarinet_lo-frqtab_16bit,$c0
-	dta frqtabbuzzy_64khz-frqtab_64khz,$c0
-	dta frqtabgritty_lo-frqtab_16bit,$c0 
+PAGE_DISTORTION_2
+	
+; Poly5 Table, 64khz, Slot 2, Distortion 2
 
-	org TABLES+$40
-
-tabbeganddistor_16bit_hi
-	dta frqtabpure_64khz-frqtab_64khz,$00
-	dta frqtabpoly5_64khz-frqtab_64khz,$20
-	dta frqtabpure_64khz-frqtab_64khz,$40
-	dta frqtabbuzzy_64khz-frqtab_64khz,$c0
-	dta frqtabpure_64khz-frqtab_64khz,$80
-	dta frqtabpure_hi-frqtab_16bit,$a0
-	;dta clarinet_hi-frqtab_16bit,$a0
-	dta frqtabbuzzy_64khz-frqtab_64khz,$c0
-	dta frqtabgritty_hi-frqtab_16bit,$c0 
-
-; Vibrato tables
+frqtabpoly5_64khz
+        dta $3E,$3A,$37,$33,$30,$2E,$2B,$29,$26,$24,$22,$20
+        dta $1F,$1C,$1B,$19,$18,$16,$15,$14,$13,$12,$10,$10
+        dta $0F,$0E,$0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07
+        dta $07,$06,$06,$06,$05,$05,$05,$04,$04,$04,$03,$03
+        dta $03,$03,$02,$02,$02,$02,$02,$02,$01,$01,$01,$01
+        dta $00,$00,$00,$00
         
-        IFT FEAT_EFFECTVIBRATO
-        org Tables+$50
+; Poly5 Table, 1.79mhz, Slot 2, Distortion 2
+
+frqtabpoly5_179mhz
+        dta $D7,$CA,$BE,$B3,$A9,$9F,$96,$8D,$85,$7E,$77,$70
+        dta $69,$63,$5E,$58,$53,$4E,$49,$45,$41,$3D,$39,$36
+        dta $32,$2F,$2D,$2A,$27,$25,$23,$20,$1E,$1D,$1A,$19
+        dta $17,$16,$14,$13,$12,$11,$0F,$0E,$0D,$0C,$0B,$0A
+        dta $0A,$09,$08,$07,$07,$06,$06,$05,$05,$04,$04,$03
+        dta $03,$02,$02,$02
+        
+; Poly5 Table, 16-bit hi, Slot 2, Distortion 2 
+        
+frqtabpoly5_hi
+;	dta $06,$06,$06,$05,$05,$05,$04,$04,$04,$04,$03,$03	; Octave 0
+
+	dta $03,$03,$03,$02,$02,$02,$02,$02,$02,$02,$01,$01
+	dta $01,$01,$01,$01,$01,$01,$01,$01,$01,$00,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00
 	
-vibtabbeg
-        dta 0,vib1-vib0,vib2-vib0,vib3-vib0
-vib0	dta 0
-vib1	dta 1,-1,-1,1
-vib2	dta 1,0,-1,-1,0,1
-vib3	dta 1,1,0,-1,-1,-1,-1,0,1,1
+;			   ,$00,$00,$00,$00,$00,$00,$00,$00	; Octave 6
+        
+; Poly5 Table, 16-bit lo, Slot 2, Distortion 2 
 
-vibtabnext
-	dta vib0-vib0+0
-	dta vib1-vib0+1,vib1-vib0+2,vib1-vib0+3,vib1-vib0+0
-	dta vib2-vib0+1,vib2-vib0+2,vib2-vib0+3,vib2-vib0+4,vib2-vib0+5,vib2-vib0+0
-	dta vib3-vib0+1,vib3-vib0+2,vib3-vib0+3,vib3-vib0+4,vib3-vib0+5,vib3-vib0+6,vib3-vib0+7,vib3-vib0+8,vib3-vib0+9,vib3-vib0+0
-	EIF
+frqtabpoly5_lo
+;	dta $CB,$69,$0C,$B5,$63,$15,$CC,$86,$45,$07,$CD,$96	; Octave 0
 
-; New volume Lookup Table, thanks to TakuikaNinja for helpful advices and ideas! 
-
-	org Tables+$80
-
-volumetab
-        dta $00,$00,$00,$00,$00,$00,$00,$00
-        dta $00,$00,$00,$00,$11,$11,$11,$11
-        dta $00,$00,$11,$11,$11,$11,$22,$22
-        dta $00,$01,$11,$11,$22,$22,$23,$33
-        dta $00,$11,$11,$22,$22,$33,$33,$44
-        dta $00,$11,$12,$22,$33,$34,$44,$55
-        dta $00,$11,$22,$23,$34,$44,$55,$66
-        dta $00,$11,$22,$33,$44,$55,$66,$77
-        dta $01,$12,$23,$34,$45,$56,$67,$78
-        dta $01,$12,$23,$44,$55,$67,$78,$89
-        dta $01,$12,$33,$45,$56,$77,$89,$9A
-        dta $01,$12,$34,$45,$67,$78,$9A,$AB
-        dta $01,$22,$34,$56,$67,$89,$AA,$BC
-        dta $01,$23,$34,$56,$78,$9A,$AB,$CD
-        dta $01,$23,$45,$67,$78,$9A,$BC,$DE
-        dta $01,$23,$45,$67,$89,$AB,$CD,$EF
+	dta $62,$31,$03,$D7,$AE,$87,$62,$40,$1F,$00,$E3,$C7
+	dta $AD,$95,$7E,$68,$53,$40,$2E,$1C,$0C,$FD,$EE,$E0
+	dta $D3,$C7,$BB,$B1,$A6,$9D,$93,$8B,$82,$7B,$73,$6D
+	dta $66,$60,$5A,$55,$50,$4B,$46,$42,$3E,$3A,$36,$33
+	dta $30,$2C,$2A,$27,$24,$22,$20,$1D,$1B,$19,$17,$16
+	dta $14,$13,$11,$10
 	
-; 64khz tables
+;			   ,$0F,$0D,$0C,$0B,$0A,$09,$08,$07	; Octave 6
 
-	org Tables+$100
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+PAGE_DISTORTION_A
+	
+; Pure Table, 64khz, Slot A, Distortion A
 
-frqtab
-	ERT [<frqtab]!=0
+frqtabpure_64khz
+	dta $F1,$E3,$D6,$CA,$BF,$B4,$AA,$A0,$97,$8F,$87,$7F
+	dta $78,$71,$6B,$65,$5F,$5A,$54,$50,$4B,$47,$43,$3F
+	dta $3B,$38,$35,$32,$2F,$2C,$2A,$27,$25,$23,$21,$1F
+	dta $1D,$1C,$1A,$18,$17,$16,$14,$13,$12,$11,$10,$0F
+	dta $0E,$0D,$0C,$0C,$0B,$0A,$0A,$09,$09,$08,$07,$07
+	dta $07,$06,$06,$05
+
+; Pure Table, 1.79mhz, Slot A, Distortion A
+
+frqtabpure_179mhz
+        dta $CF,$C4,$B8,$AE,$A4,$9A,$92,$89,$81,$7A,$73,$6C	; Octave 8
+        dta $66,$60,$5A,$55,$50,$4B,$47,$43,$3F,$3B,$37,$34
+        dta $31,$2E,$2B,$28,$26,$24,$21,$1F,$1D,$1B,$1A,$18
+        dta $17,$16,$14,$13,$12,$11,$0F,$0E,$0D,$0C,$0B,$0A	; copied from Poly5 1.79mhz, mostly
+        dta $0A,$09,$08,$07,$07,$06,$06,$05,$05,$04,$04,$03
+        dta $03,$02,$01,$00        
+        
+; Pure Table, 16-bit hi, Slot A, Distortion A
+        
+frqtabpure_hi
+;	dta $D3,$C7,$BC,$B1,$A7,$9E,$95,$8D,$85,$7D,$76,$6F	; Octave 0
+
+        dta $69,$63,$5E,$58,$53,$4F,$4A,$46,$42,$3E,$3B,$37
+        dta $34,$31,$2F,$2C,$29,$27,$25,$23,$21,$1F,$1D,$1B
+        dta $1A,$18,$17,$16,$14,$13,$12,$11,$10,$0F,$0E,$0D
+        dta $0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07,$07,$06
+        dta $06,$06,$05,$05,$05,$04,$04,$04,$04,$03,$03,$03
+        dta $03,$03,$02,$02 
+        
+;			   ,$02,$02,$02,$02,$02,$01,$01,$01	; Octave 6
+;	dta $01,$01,$01,$01,$01,$01,$01,$01,$01,$00,$00,$00	; Octave 7
+;	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00	; Octave 8
+;	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00	; Octave 9
+
+; Pure Table, 16-bit lo, Slot A, Distortion A
+
+frqtabpure_lo
+;	dta $67,$89,$55,$C3,$C8,$5D,$7A,$15,$2A,$B0,$A2,$F9	; Octave 0
+
+        dta $B0,$C1,$27,$DE,$E1,$2B,$B9,$87,$91,$D5,$4D,$F9
+        dta $D4,$DD,$10,$6B,$ED,$92,$59,$40,$45,$67,$A3,$F9
+        dta $67,$EB,$85,$32,$F3,$C6,$A9,$9D,$9F,$B0,$CE,$F9
+        dta $30,$72,$BF,$16,$76,$DF,$51,$CB,$4C,$D4,$64,$F9
+        dta $94,$36,$DC,$87,$37,$EC,$A5,$62,$23,$E7,$AE,$79
+        dta $47,$17,$EA,$C0 
+        
+;			   ,$93,$73,$4F,$33,$0E,$F0,$D4,$B9	; Octave 6
+;	dta $A0,$88,$72,$5D,$49,$36,$24,$13,$03,$F4,$E6,$D9	; Octave 7
+;	dta $CC,$C1,$B5,$AB,$A1,$97,$8F,$86,$7E,$77,$70,$69	; Octave 8
+;	dta $63,$5D,$57,$52,$4D,$48,$44,$40,$3C,$38,$34,$31	; Octave 9
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+PAGE_DISTORTION_C
+
+; Buzzy Bass Table, 64khz, Slot C, Distortion C
+
+frqtabbuzzy_64khz
+        dta $7F,$79,$73,$6C,$66,$60,$5A,$55,$F2,$E6,$D7,$CB
+        dta $BF,$B6,$AA,$A1,$98,$8F,$89,$80,$7A,$71,$6B,$65
+        dta $5F,$5C,$56,$50,$4D,$47,$44,$41,$3E,$38,$35,$32
+        dta $2F,$2F,$29,$29,$26,$23,$20,$20,$20,$1A,$1A,$17
+        dta $17,$17,$14,$14,$11,$11,$11,$11,$11,$0B,$0B,$0B
+        dta $0B,$0B,$0B,$08
+        
+; Poly4 Buzzy Table, 1.79mhz, Slot C, Distortion C
+
+frqtabbuzzy_179mhz
+        dta $6D,$66,$61,$5A,$55,$F8,$E9,$E0,$D1,$C5,$B9,$AD	; Octave 6
+        dta $A4,$9B,$95,$89,$80,$7A,$71,$6E,$68,$62,$5C,$53
+        dta $50,$4D,$4A,$44,$3E,$3B,$35,$35,$32,$2F,$2C,$26
+        dta $26,$23,$23,$20,$1D,$1D,$1D,$17,$17,$14,$14,$11
+        dta $0A,$09,$08,$07,$07,$06,$06,$05,$05,$04,$04,$03	; copied from Poly5 1.79mhz, mostly
+        dta $03,$02,$01,$00 
+        
+; Buzzy Bass Table, 16-bit hi, Slot C, Distortion C 
+        
+frqtabbuzzy_hi
+;	dta $54,$4F,$4B,$47,$43,$3F,$3B,$38,$35,$32,$2F,$2C	; Octave 0
+
+	dta $2A,$27,$25,$23,$21,$1F,$1D,$1C,$1A,$19,$17,$16
+	dta $15,$13,$12,$11,$10,$0F,$0E,$0E,$0D,$0C,$0B,$0B
+	dta $0A,$09,$09,$08,$08,$07,$07,$07,$06,$06,$05,$05
+	dta $05,$04,$04,$04,$04,$03,$03,$03,$03,$03,$02,$02
+	dta $02,$02,$02,$02,$02,$01,$01,$01,$01,$01,$01,$01
+	dta $01,$01,$01,$01 
+	
+;			   ,$01,$00,$00,$00,$00,$00,$00,$00	; Octave 6
+;	dta $00							; Octave 7
+
+; Buzzy Bass Table, 16-bit lo, Slot C, Distortion C 
+
+frqtabbuzzy_lo
+;	dta $8C,$CD,$50,$18,$19,$53,$C6,$6C,$3F,$42,$72,$C6	; Octave 0
+
+	dta $41,$E3,$A3,$87,$89,$A6,$E1,$31,$9C,$1F,$B7,$5E
+	dta $1D,$EE,$CE,$C0,$C1,$D1,$ED,$15,$4C,$8C,$D8,$2D
+	dta $8B,$F2,$65,$DE,$5D,$E5,$73,$07,$A1,$41,$E7,$93
+	dta $42,$F7,$AF,$6A,$2B,$EF,$B6,$80,$4D,$1D,$F0,$C6
+	dta $9F,$78,$57,$30,$12,$F4,$D6,$BE,$A3,$8B,$76,$5E
+	dta $4C,$37,$28,$13 
+	
+;			   ,$04,$F5,$E6,$DD,$CE,$C2,$B6,$AA	; Octave 6
+;	dta $A1							; Octave 7
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+PAGE_DISTORTION_E
+
+; Gritty Bass Table, 64khz, Slot E, Distortion C
+
+frqtabgritty_64khz 
+        dta $FF,$F3,$E4,$D8,$CD,$C0,$B5,$AB,$A2,$99,$91,$88 
+        dta $7F,$79,$73,$6C,$66,$60,$5A,$55,$51,$4C,$48,$43
+        dta $3F,$3C,$39,$34,$33,$30,$2D,$2A,$28,$25,$24,$21
+        dta $1F,$1E,$1C,$50,$19,$47,$16,$15,$3E,$12,$35,$10
+        dta $0F,$0F,$0D,$0D,$0C,$23,$0A,$0A,$0A,$1A,$1A,$07
+        dta $07,$07,$06,$06
+
+; Poly4 Gritty Table, 1.79mhz, Slot E, Distortion C
+
+frqtabgritty_179mhz
+        dta $DE,$D0,$C6,$BB,$AF,$A5,$9A,$93,$8A,$82,$7B,$73	; Octave 5
+        dta $6D,$66,$61,$5A,$55,$4F,$4B,$48,$43,$3F,$3C,$37
+        dta $34,$31,$2D,$2B,$28,$27,$25,$22,$21,$1E,$1C,$19
+        dta $18,$16,$16,$13,$12,$12,$0F,$0F,$0D,$0D,$0C,$0A
+        dta $0A,$09,$09,$07,$07,$07,$07,$04,$04,$04,$04,$03
+	dta $03,$02,$01,$00
+
+; Gritty Bass Table, 16-bit hi. Slot E, Distortion C
+
+frqtabgritty_hi
+;	dta $1C,$1A,$19,$17,$16,$15,$13,$12,$11,$10,$0F,$0E	; Octave 0
+
+	dta $0E,$0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07,$07
+	dta $07,$06,$06,$05,$05,$05,$04,$04,$04,$04,$03,$03
+	dta $03,$03,$03,$02,$02,$02,$02,$02,$02,$02,$01,$01
+	dta $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00 
+	
+;			   ,$00,$00,$00,$00,$00,$00,$00,$00	; Octave 6
+;	dta $00							; Octave 7
+
+; Gritty Bass Table, 16-bit lo. Slot E, Distortion C
+
+frqtabgritty_lo
+;	dta $2A,$95,$15,$AD,$58,$18,$E9,$CA,$BB,$BC,$CC,$E8	; Octave 0
+
+	dta $11,$47,$87,$D3,$29,$89,$F1,$61,$DA,$5B,$E3,$71
+	dta $05,$A0,$40,$E6,$91,$41,$F5,$AD,$69,$2A,$EE,$B5
+	dta $7F,$4C,$1C,$EF,$C5,$9D,$77,$53,$31,$11,$F3,$D7
+	dta $BC,$A4,$8A,$74,$5F,$4B,$38,$26,$15,$05,$F6,$E8
+	dta $DB,$CD,$C3,$B8,$AC,$A2,$9A,$90,$87,$7F,$78,$70
+	dta $6A,$63,$5E,$57 
+	
+;			   ,$52,$4C,$48,$45,$40,$3C,$39,$34	; Octave 6
+;	dta $31							; Octave 7
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+PAGE_EXTRA_0
+
+; Croissant Sawtooth, use on Channel 1 or 3, must be muted on channel 3.
+
+frqtabsawtooth_ch1
+	dta $E4,$DE,$D7,$D1,$CB,$C5,$BF,$BA,$B4,$AF,$AA,$A5
+	dta $A0,$9B,$97,$92,$8E,$8A,$86,$82,$7E,$7A,$77,$73
+	dta $70,$6D,$69,$66,$63,$60,$5D,$81,$58,$7A,$76,$50
+	dta $4E,$6C,$69,$47,$45,$43,$5D,$5A,$57,$3B,$52,$62
+	dta $4D,$34,$68,$31,$62,$42,$5C,$2B,$6A,$67,$6C,$58
+	dta $35,$4A,$32,$4E
+
+; Croissant Sawtooth, use on Channel 1 or 3, must be muted on channel 3.
+
+frqtabsawtooth_ch3
+	dta $E5,$DF,$D8,$D2,$CC,$C6,$C0,$BB,$B5,$B0,$AB,$A6
+	dta $A1,$9C,$98,$93,$8F,$8B,$87,$83,$7F,$7B,$78,$74
+	dta $71,$6E,$6A,$67,$64,$61,$5E,$83,$59,$7C,$78,$51
+	dta $4F,$6E,$6B,$48,$46,$44,$5F,$5C,$59,$3C,$54,$65
+	dta $4F,$35,$6C,$32,$66,$44,$60,$2C,$70,$6D,$73,$5D
+	dta $37,$4E,$34,$53
+
+; Pure Table, 15khz, Slot A, Distortion A
+
+frqtabpure_15khz
+        dta $ED,$DF,$D2,$C7,$BB,$B1,$A7,$9D,$95,$8C,$84,$7D
+        dta $76,$6F,$69,$63,$5D,$58,$53,$4E,$4A,$45,$42,$3E
+        dta $3A,$37,$34,$31,$2E,$2B,$29,$27,$24,$22,$20,$1E
+        dta $1D,$1B,$1A,$18,$17,$15,$14,$13,$12,$11,$10,$0F
+        dta $0E,$0D,$0C,$0C,$0B,$0A,$0A,$09,$08,$08,$07,$07
+        dta $06,$06,$06,$05
+
+; Buzzy Bass Table, 15khz, Slot C, Distortion C
+
+frqtabbuzzy_15khz
+        dta $BC,$B2,$A8,$9E,$96,$8D,$85,$7E,$76,$70,$6A,$64
+        dta $5F,$58,$53,$4E,$4B,$46,$42,$3E,$3A,$37,$34,$32
+        dta $2E,$2B,$29,$26,$25,$23,$21,$1F,$1C,$1B,$1A,$19
+        dta $17,$16,$15,$14,$12,$11,$10,$0F,$0D,$0D,$0C,$0C
+        dta $0B,$0A,$0A,$0A,$08,$08,$07,$07,$06,$06,$06,$05
+        dta $05,$05,$05,$03
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;-----------------------------------------------------------;
+;-----------------------------------------------------------;
+;-----------------------------------------------------------;
+;* OLD DATA BELOW THIS POINT, IGNORE IT!
+;-----------------------------------------------------------;
+;-----------------------------------------------------------;
+;-----------------------------------------------------------;
+
+	IFT !DONTUSEME	; if the definition is set, the entirety of the tables are not going to be assembled in the code!
 
 frqtab_64khz
 
 ; Pure Table, Slot A, Distortion A
 
 frqtabpure_64khz
-        dta $F1,$E3,$D6,$CA,$BF,$B4,$AA,$A0,$97,$8F,$87,$7F
-        dta $78,$71,$6B,$65,$5F,$5A,$54,$50,$4B,$47,$43,$3F
-        dta $3B,$38,$35,$32,$2F,$2C,$2A,$27,$25,$23,$21,$1F
-        dta $1D,$1C,$1A,$18,$17,$16,$14,$13,$12,$11,$10,$0F
-        dta $0E,$0D,$0C,$0C,$0B,$0A,$0A,$09,$09,$08,$07,$07
-        dta $07,$06,$06,$05
+	dta $F1,$E3,$D6,$CA,$BF,$B4,$AA,$A0,$97,$8F,$87,$7F
+	dta $78,$71,$6B,$65,$5F,$5A,$54,$50,$4B,$47,$43,$3F
+	dta $3B,$38,$35,$32,$2F,$2C,$2A,$27,$25,$23,$21,$1F
+	dta $1D,$1C,$1A,$18,$17,$16,$14,$13,$12,$11,$10,$0F
+	dta $0E,$0D,$0C,$0C,$0B,$0A,$0A,$09,$09,$08,$07,$07
+	dta $07,$06,$06,$05
          
 ; Buzzy Bass Table, Slot C, Distortion C
 
@@ -149,7 +332,6 @@ frqtabgritty_64khz
 ; Crunchy Bass Table, Slot 2, Distortion 2
 
 frqtabpoly5_64khz
-
         dta $3E,$3A,$37,$33,$30,$2E,$2B,$29,$26,$24,$22,$20
         dta $1F,$1C,$1B,$19,$18,$16,$15,$14,$13,$12,$10,$10
         dta $0F,$0E,$0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07
@@ -157,9 +339,13 @@ frqtabpoly5_64khz
         dta $03,$03,$02,$02,$02,$02,$02,$02,$01,$01,$01,$01
         dta $00,$00,$00,$00
 
+;-----------------------------------------------------------;
+
 ; 15khz tables
 
-	org Tables+$200
+	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+	org Tables+$100	
+	IFT FEAT_FULL_TABLES_HIJACK
 
 frqtab_15khz
 
@@ -176,7 +362,6 @@ frqtabpure_15khz
 ; Buzzy Bass Table, Slot C, Distortion C
 
 frqtabbuzzy_15khz
-
         dta $BC,$B2,$A8,$9E,$96,$8D,$85,$7E,$76,$70,$6A,$64
         dta $5F,$58,$53,$4E,$4B,$46,$42,$3E,$3A,$37,$34,$32
         dta $2E,$2B,$29,$26,$25,$23,$21,$1F,$1C,$1B,$1A,$19
@@ -184,16 +369,17 @@ frqtabbuzzy_15khz
         dta $0B,$0A,$0A,$0A,$08,$08,$07,$07,$06,$06,$06,$05
         dta $05,$05,$05,$03
 
+;-----------------------------------------------------------;
+
 ; 1.79mhz tables
 
-	org Tables+$300
+	org Tables+$200
 
 frqtab_179mhz
 
 ; Poly5 Table, Slot 2, Distortion 2
 
 frqtabpoly5_179mhz
-
         dta $D7,$CA,$BE,$B3,$A9,$9F,$96,$8D,$85,$7E,$77,$70
         dta $69,$63,$5E,$58,$53,$4E,$49,$45,$41,$3D,$39,$36
         dta $32,$2F,$2D,$2A,$27,$25,$23,$20,$1E,$1D,$1A,$19
@@ -204,14 +390,12 @@ frqtabpoly5_179mhz
 ; Pure Table, Slot A, Distortion A
 
 frqtabpure_179mhz
-
         dta $CF,$C4,$B8,$AE,$A4,$9A,$92,$89,$81,$7A,$73,$6C
         dta $66,$60,$5A,$55,$50,$4B,$47,$43,$3F,$3B,$37,$34
 
 ; Poly4 Buzzy Table, Slot C, Distortion C
 
 frqtabbuzzy_179mhz
-
         dta $6C,$69,$61,$5A,$55,$FE,$E6,$DA,$D1,$C5,$B9,$AD
         dta $A4,$9B,$95,$89,$80,$7A,$71,$6E,$68,$62,$5C,$53
         dta $50,$4D,$4A,$44,$3E,$3B,$35,$32,$32,$2F,$2C,$26
@@ -220,85 +404,201 @@ frqtabbuzzy_179mhz
 ; Poly4 Gritty Table, Slot E, Distortion C
 
 frqtabgritty_179mhz
-
         dta $DC,$D0,$C6,$BB,$AF,$A5,$9D,$91,$8A,$82,$7B,$73
         dta $6C,$69,$61,$5A,$55,$52,$4B,$46,$43,$3F,$3C,$37
         dta $34,$31,$2D,$2B,$28,$27,$25,$22,$21,$1E,$1C,$19
         dta $18,$16,$16,$13,$12,$12,$0F,$0F,$0D,$0D,$0C,$0A
         dta $0A
+        EIF
+
+;-----------------------------------------------------------;
 
 ; 16-Bit Table
 
-	org Tables+$400
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	org Tables+$300
 
 frqtab_16bit
 
-; Pure Table, 16-bit lo, Slot A, Distortion A
+; Distortion A and 2 should use the 16-bit tables from this location
 
-frqtabpure_lo
-        dta $B0,$C1,$27,$DE,$E1,$2B,$B9,$87,$92,$D5,$4E,$F9
-        dta $D5,$DD,$10,$6C,$ED,$92,$59,$40,$45,$67,$A3,$F9
-        dta $67,$EB,$85,$32,$F3,$C6,$A9,$9D,$9F,$B0,$CE,$F9
-        dta $30,$72,$BF,$16,$76,$DF,$51,$CB,$4C,$D4,$64,$F9
-        dta $94,$36,$DC,$87,$37,$EC,$A5,$62,$23,$E7,$AE,$79
-        dta $47,$17,$EA,$C0
+frqtab_16bit_A_2	
 
 ; Pure Table, 16-bit hi, Slot A, Distortion A
         
 frqtabpure_hi
+;	dta $D3,$C7,$BC,$B1,$A7,$9E,$95,$8D,$85,$7D,$76,$6F	; Octave 0
         dta $69,$63,$5E,$58,$53,$4F,$4A,$46,$42,$3E,$3B,$37
         dta $34,$31,$2F,$2C,$29,$27,$25,$23,$21,$1F,$1D,$1B
         dta $1A,$18,$17,$16,$14,$13,$12,$11,$10,$0F,$0E,$0D
         dta $0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07,$07,$06
         dta $06,$06,$05,$05,$05,$04,$04,$04,$04,$03,$03,$03
         dta $03,$03,$02,$02 
+;			   ,$02,$02,$02,$02,$02,$01,$01,$01	; Octave 6
+;	dta $01,$01,$01,$01,$01,$01,$01,$01,$01,$00,$00,$00	; Octave 7
+;	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00	; Octave 8
+;	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00	; Octave 9
 
-; Gritty Bass Table, 16-bit lo. Slot E, Distortion C
+; Pure Table, 16-bit lo, Slot A, Distortion A
 
-frqtabgritty_lo
+frqtabpure_lo
+;	dta $67,$89,$55,$C3,$C8,$5D,$7A,$15,$2A,$B0,$A2,$F9	; Octave 0
+        dta $B0,$C1,$27,$DE,$E1,$2B,$B9,$87,$91,$D5,$4D,$F9
+        dta $D4,$DD,$10,$6B,$ED,$92,$59,$40,$45,$67,$A3,$F9
+        dta $67,$EB,$85,$32,$F3,$C6,$A9,$9D,$9F,$B0,$CE,$F9
+        dta $30,$72,$BF,$16,$76,$DF,$51,$CB,$4C,$D4,$64,$F9
+        dta $94,$36,$DC,$87,$37,$EC,$A5,$62,$23,$E7,$AE,$79
+        dta $47,$17,$EA,$C0 
+;			   ,$93,$73,$4F,$33,$0E,$F0,$D4,$B9	; Octave 6
+;	dta $A0,$88,$72,$5D,$49,$36,$24,$13,$03,$F4,$E6,$D9	; Octave 7
+;	dta $CC,$C1,$B5,$AB,$A1,$97,$8F,$86,$7E,$77,$70,$69	; Octave 8
+;	dta $63,$5D,$57,$52,$4D,$48,$44,$40,$3C,$38,$34,$31	; Octave 9
+       
+	IFT FEAT_FULL_16BIT
+; Poly5 Table, 16-bit hi, Slot 2, Distortion 2 
+        
+frqtabpoly5_hi
+;	dta $06,$06,$06,$05,$05,$05,$04,$04,$04,$04,$03,$03	; Octave 0
+	dta $03,$03,$03,$02,$02,$02,$02,$02,$02,$02,$01,$01
+	dta $01,$01,$01,$01,$01,$01,$01,$01,$01,$00,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00
+;			   ,$00,$00,$00,$00,$00,$00,$00,$00	; Octave 6
+        
+; Poly5 Table, 16-bit lo, Slot 2, Distortion 2 
 
-        dta $3A,$6C,$AC,$F5,$49,$A7,$0F,$8A,$F4,$71,$F9,$86
-        dta $26,$B2,$51,$F7,$A1,$50,$04,$BC,$75,$35,$F9,$C0
-        dta $8A,$57,$27,$F8,$CD,$A4,$7D,$59,$37,$17,$F9,$DB
-        dta $C2,$A8,$8F,$78,$63,$4E,$3B,$29,$18,$08,$F9,$EB
-        dta $DC,$CF,$C4,$B8,$AE,$A2,$9A,$91,$87,$81,$79,$72
-        dta $6A,$64,$5E,$5A
+frqtabpoly5_lo
+;	dta $CB,$69,$0C,$B5,$63,$15,$CC,$86,$45,$07,$CD,$96	; Octave 0
+	dta $62,$31,$03,$D7,$AE,$87,$62,$40,$1F,$00,$E3,$C7
+	dta $AD,$95,$7E,$68,$53,$40,$2E,$1C,$0C,$FD,$EE,$E0
+	dta $D3,$C7,$BB,$B1,$A6,$9D,$93,$8B,$82,$7B,$73,$6D
+	dta $66,$60,$5A,$55,$50,$4B,$46,$42,$3E,$3A,$36,$33
+	dta $30,$2C,$2A,$27,$24,$22,$20,$1D,$1B,$19,$17,$16
+	dta $14,$13,$11,$10
+;			   ,$0F,$0D,$0C,$0B,$0A,$09,$08,$07	; Octave 6
+
+;-----------------------------------------------------------;
+
+	org Tables+$400
+
+; Distortion C and E should use the 16-bit tables from this location
+
+frqtab_16bit_C_E	
+
+; Buzzy Table, 16-bit hi, Slot C, Distortion C 
+        
+frqtabbuzzy_hi
+;	dta $54,$4F,$4B,$47,$43,$3F,$3B,$38,$35,$32,$2F,$2C	; Octave 0
+
+	dta $2A,$27,$25,$23,$21,$1F,$1D,$1C,$1A,$19,$17,$16
+	dta $15,$13,$12,$11,$10,$0F,$0E,$0E,$0D,$0C,$0B,$0B
+	dta $0A,$09,$09,$08,$08,$07,$07,$07,$06,$06,$05,$05
+	dta $05,$04,$04,$04,$04,$03,$03,$03,$03,$03,$02,$02
+	dta $02,$02,$02,$02,$02,$01,$01,$01,$01,$01,$01,$01
+	dta $01,$01,$01,$01 ;,$01,$00,$00,$00,$00,$00,$00,$00
+;	dta $00							; Octave 7
+
+; Buzzy Bass Table, 16-bit lo, Slot C, Distortion C 
+
+frqtabbuzzy_lo
+;	dta $8C,$CD,$50,$18,$19,$53,$C6,$6C,$3F,$42,$72,$C6	; Octave 0
+
+	dta $41,$E3,$A3,$87,$89,$A6,$E1,$31,$9C,$1F,$B7,$5E
+	dta $1D,$EE,$CE,$C0,$C1,$D1,$ED,$15,$4C,$8C,$D8,$2D
+	dta $8B,$F2,$65,$DE,$5D,$E5,$73,$07,$A1,$41,$E7,$93
+	dta $42,$F7,$AF,$6A,$2B,$EF,$B6,$80,$4D,$1D,$F0,$C6
+	dta $9F,$78,$57,$30,$12,$F4,$D6,$BE,$A3,$8B,$76,$5E
+	dta $4C,$37,$28,$13 ;,$04,$F5,$E6,$DD,$CE,$C2,$B6,$AA
+;	dta $A1							; Octave 7
 
 ; Gritty Bass Table, 16-bit hi. Slot E, Distortion C
 
 frqtabgritty_hi
+;	dta $1C,$1A,$19,$17,$16,$15,$13,$12,$11,$10,$0F,$0E	; Octave 0
 
-        dta $0E,$0D,$0C,$0B,$0B,$0A,$0A,$09,$08,$08,$07,$07
-        dta $07,$06,$06,$05,$05,$05,$05,$04,$04,$04,$03,$03
-        dta $03,$03,$03,$02,$02,$02,$02,$02,$02,$02,$01,$01
-        dta $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$00,$00
-        dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-        dta $00,$00,$00,$00
+	dta $0E,$0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07,$07
+	dta $07,$06,$06,$05,$05,$05,$04,$04,$04,$04,$03,$03
+	dta $03,$03,$03,$02,$02,$02,$02,$02,$02,$02,$01,$01
+	dta $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00 ;,$00,$00,$00,$00,$00,$00,$00,$00
+;	dta $00							; Octave 7
 
+; Gritty Bass Table, 16-bit lo. Slot E, Distortion C
 
-;;;;;;;;;;;;;;;;
-; extra tables ;
-;;;;;;;;;;;;;;;;
- 
-; Distortion C, 1.79mhz, Clarinet Lo, exclusive to PoP
+frqtabgritty_lo
+;	dta $2A,$95,$15,$AD,$58,$18,$E9,$CA,$BB,$BC,$CC,$E8	; Octave 0
 
-clarinet_lo
-        ;dta $E2,$D6,$06,$63,$FC,$95,$5B,$30,$41,$70,$BD,$FB
-        ;dta $75,$EF,$96,$5B,$F3,$E5,$9B,$AB,$9D,$BC,$DB,$FA
-        ;dta $19,$74,$CF,$1B,$76,$D1,$59,$B4,$4B,$D3,$6A,$F2
-        ;dta $89,$4D,$E4,$7B,$3F,$03,$9A,$5E,$22,$E6,$AA,$7D
-        ;dta $41,$14,$E7,$BA,$9C,$7E,$42,$24,$06,$F2,$D9,$BB
-        ;dta $9D,$8E,$70,$61 
-        
+	dta $11,$47,$87,$D3,$29,$89,$F1,$61,$DA,$5B,$E3,$71
+	dta $05,$A0,$40,$E6,$91,$41,$F5,$AD,$69,$2A,$EE,$B5
+	dta $7F,$4C,$1C,$EF,$C5,$9D,$77,$53,$31,$11,$F3,$D7
+	dta $BC,$A4,$8A,$74,$5F,$4B,$38,$26,$15,$05,$F6,$E8
+	dta $DB,$CD,$C3,$B8,$AC,$A2,$9A,$90,$87,$7F,$78,$70
+	dta $6A,$63,$5E,$57 ;,$52,$4C,$48,$45,$40,$3C,$39,$34
+;	dta $31							; Octave 7
+	EIF
+	EIF
+	
+;-----------------------------------------------------------;
+
+; extra tables, location is not yet definitive
+
+frqtab_extra
+	IFT FEAT_TABLE_MANUAL
+	org Tables+$800
+  
 ; Distortion A, Reverse-16, Clarinet Hi, exclusive to PoP
 
 clarinet_hi
-        ;dta $34,$31,$2F,$2C,$29,$27,$25,$23,$21,$1F,$1D,$1B
-        ;dta $1A,$18,$17,$16,$14,$13,$12,$11,$10,$0F,$0E,$0D
-        ;dta $0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07,$07,$06
-        ;dta $06,$06,$05,$05,$05,$05,$04,$04,$04,$03,$03,$03
-        ;dta $03,$03,$02,$02,$02,$02,$02,$02,$02,$01,$01,$01
-        ;dta $01,$01,$01,$01
+        dta $34,$31,$2F,$2C,$29,$27,$25,$23,$21,$1F,$1D,$1B
+        dta $1A,$18,$17,$16,$14,$13,$12,$11,$10,$0F,$0E,$0D
+        dta $0D,$0C,$0B,$0B,$0A,$09,$09,$08,$08,$07,$07,$06
+        dta $06,$06,$05,$05,$05,$05,$04,$04,$04,$03,$03,$03
+        dta $03,$03,$02,$02,$02,$02,$02,$02,$02,$01,$01,$01
+        dta $01,$01,$01,$01
         
-; End of tables and data
+; Distortion C, 1.79mhz, Clarinet Lo, exclusive to PoP
+
+clarinet_lo
+        dta $E2,$D6,$06,$63,$FC,$95,$5B,$30,$41,$70,$BD,$FB
+        dta $75,$EF,$96,$5B,$F3,$E5,$9B,$AB,$9D,$BC,$DB,$FA
+        dta $19,$74,$CF,$1B,$76,$D1,$59,$B4,$4B,$D3,$6A,$F2
+        dta $89,$4D,$E4,$7B,$3F,$03,$9A,$5E,$22,$E6,$AA,$7D
+        dta $41,$14,$E7,$BA,$9C,$7E,$42,$24,$06,$F2,$D9,$BB
+        dta $9D,$8E,$70,$61       
+        EIF  
+        
+; Croissant Sawtooth, use on Channel 1 or 3, must be muted on channel 3.
+
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+frqtabsawtooth_ch1
+	dta $E4,$DE,$D7,$D1,$CB,$C5,$BF,$BA,$B4,$AF,$AA,$A5
+	dta $A0,$9B,$97,$92,$8E,$8A,$86,$82,$7E,$7A,$77,$73
+	dta $70,$6D,$69,$66,$63,$60,$5D,$81,$58,$7A,$76,$50
+	dta $4E,$6C,$69,$47,$45,$43,$5D,$5A,$57,$3B,$52,$62
+	dta $4D,$34,$68,$31,$62,$42,$5C,$2B,$6A,$67,$6C,$58
+	dta $35,$4A,$32,$4E
+
+; Croissant Sawtooth, use on Channel 1 or 3, must be muted on channel 3.
+
+frqtabsawtooth_ch2
+	dta $E5,$DF,$D8,$D2,$CC,$C6,$C0,$BB,$B5,$B0,$AB,$A6
+	dta $A1,$9C,$98,$93,$8F,$8B,$87,$83,$7F,$7B,$78,$74
+	dta $71,$6E,$6A,$67,$64,$61,$5E,$83,$59,$7C,$78,$51
+	dta $4F,$6E,$6B,$48,$46,$44,$5F,$5C,$59,$3C,$54,$65
+	dta $4F,$35,$6C,$32,$66,$44,$60,$2C,$70,$6D,$73,$5D
+	dta $37,$4E,$34,$53
+	EIF
+        
+; End of tables and data, below is the alternative BASS16 table, if the other tables are not loaded as well
+	EIF
+	
+	
+;-----------------------------------------------------------;
+
+	EIF	; DONTUSEME!!!!!
+	
+	
 

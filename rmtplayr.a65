@@ -1,140 +1,115 @@
-;*************************************************************************************************;
-;* RMT 1.28(1.30) Tuning Patch 16 (28-10-2021 - Beta9) by VinsCool                               *;
-;* Based on RMT 1.28 Patch 8 (07-02-2015) by Analmux                                             *;
-;*                                                                                               *;
-;* Raster Music Tracker, RMT Atari routine version 1.20090108                                    *;
-;* (c) Radek Sterba, Raster/C.P.U., 2002 - 2009                                                  *;
-;* http://raster.atari.org                                                                       *;
-;*                                                                                               *;
-;* Warnings:                                                                                     *;
-;*                                                                                               *;
-;* 1. RMT player routine needs 19 itself reserved bytes in zero page (no accessed                *;
-;*    from any other routines) as well as cca 1KB of memory before the "PLAYER"                  *;
-;*    address for frequency tables and functionary variables. It's:                              *;
-;*	  a) from PLAYER-$03c0 to PLAYER for stereo RMTplayer                                    *;
-;*    b) from PLAYER-$0320 to PLAYER for mono RMTplayer                                          *;
-;*                                                                                               *;
-;* 2. RMT player routine MUST (!!!) be compiled from the begin of the memory page.               *;
-;*    i.e. "PLAYER" address can be $..00 only!                                                   *;
-;*                                                                                               *;
-;* 3. Because of RMTplayer provides a lot of effects, it spent a lot of CPU time.                *;
-;*************************************************************************************************;
+;*
+;* Raster Music Tracker, RMT Atari routine version 1.20090108
+;* (c) Radek Sterba, Raster/C.P.U., 2002 - 2009
+;* http://raster.atari.org
+;*
+;* Warnings:
+;*
+;* 1. RMT player routine needs 19 itself reserved bytes in zero page (no accessed
+;*    from any other routines) as well as cca 1KB of memory before the "PLAYER"
+;*    address for frequency tables and functionary variables. It's:
+;*	  a) from PLAYER-$03c0 to PLAYER for stereo RMTplayer
+;*    b) from PLAYER-$0320 to PLAYER for mono RMTplayer
+;*
+;* 2. RMT player routine MUST (!!!) be compiled from the begin of the memory page.
+;*    i.e. "PLAYER" address can be $..00 only!
+;*
+;* 3. Because of RMTplayer provides a lot of effects, it spent a lot of CPU time.
+;*
+;* TO DO: rename many labels into stuff that makes a lot more sense later...
+;*
 
-; TO DO: rename many labels into stuff that makes a lot more sense later...
-
-; Many things seem to be hardcoded to Raster Music Tracker...
-
-FEAT_IS_TRACKER equ 0
-
-; There are many things tightly related to RMT Visualizer exclusively, they can be skipped otherwise.
-
-FEAT_IS_VISUALP equ 0
-
-; Simple RMT Player is a simple recreation of the original .xex export player from RMT, with some changes
-
-FEAT_IS_SIMPLEP equ 1
-
-; Stereo mode definition may be defined elsewhere for easier changes, otherwise it is defined here.
-
-        IFT FEAT_IS_VISUALP==0&&FEAT_IS_SIMPLEP==0
-STEREOMODE	equ 1	; 0 => compile RMTplayer for 4 tracks mono
-			; 1 => compile RMTplayer for 8 tracks stereo
-			; 2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
-			; 3 => compile RMTplayer for 4 tracks stereo L1 L2 R3 R4
-			; 4 => compile RMTplayer for 8 tracks mono LR1 LR2 LR3 LR4
-	EIF
-	IFT STEREOMODE==1
-TRACKS		equ 8
-	ELS
-TRACKS		equ 4
-	EIF
-INSTRPAR	equ 12
-PLAYER		equ $3400
-TABLES          equ $B000
-
-;************************************************************************;
-;* RMT FEATures definitions file                                        *;
-;* For optimizations of RMT player routine to concrete RMT module only! *;
-;************************************************************************;
-
+;* RMT FEATures definitions file
 	icl "rmt_feat.a65"
+;* For optimizations of RMT player routine to concrete RMT module only!
 
-; RMT ZeroPage addresses
-	                org 203
-p_tis
-p_instrstable	        org *+2
-p_trackslbstable        org *+2
-p_trackshbstable        org *+2
-p_song		        org *+2
-ns			org *+2
-nr	        	org *+2
-nt		        org *+2
-reg1     	   	org *+1
-reg2                    org *+1
-reg3                    org *+1
-tmp      		org *+1
-tmp2      		org *+1
-tmp3      		org *+1
-v_audctl                org *+1
-v_audctl2               org *+1
-
-; RMT Visualiser hack
-        IFT FEAT_IS_VISUALP==1
-v_ord			org *+1
-v_frame			org *+1
-v_second		org *+1
-v_minute		org *+1
-v_region      		org *+1
-v_volume        	org *+TRACKS
+	IFT STEREOMODE==1
+TRACKS			equ 8
+	ELS
+TRACKS			equ 4
 	EIF
+	
+PLAYER			equ $3400
+TABLES			equ $B000
+INSTRPAR		equ 12
 
-; SKCTL hack for Two-Tone Filter
-v_skctl			org *+1
-v_skctl2		org *+1
+;* RMT ZeroPage addresses
+	org 203
+	
+p_tis
+p_instrstable		org *+2
+p_trackslbstable	org *+2
+p_trackshbstable	org *+2
+p_song			org *+2
+ns			org *+2
+nr			org *+2
+nt			org *+2
+reg1			org *+1
+reg2			org *+1
+reg3			org *+1
+tmp			org *+1
 
 	IFT FEAT_COMMAND2
-frqaddcmd2      	org *+1
+frqaddcmd2		org *+1
 	EIF
+
+	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16	; to improve for ASM optimisations
+	IFT FEAT_AUDCTLMANUALSET||FEAT_BASS16
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+pointer16bitlo		org *+2
+	EIF
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+sawtoothtables		org *+2
+	EIF	
+	EIF
+	EIF
+
+	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
+old_v_audctl		org *+1
 	IFT TRACKS>4
-                	org PLAYER-$400+$40
+old_v_audctl2		org *+1	
+	EIF
+	EIF
+
+	IFT TRACKS>4
+	org PLAYER-$400+$40
 	ELS
-                	org PLAYER-$400+$e0
+	org PLAYER-$400+$e0
 	EIF
 	
 track_variables
-trackn_db       	org *+TRACKS
-trackn_hb       	org *+TRACKS
-trackn_idx       	org *+TRACKS
-trackn_pause    	org *+TRACKS
-trackn_note     	org *+TRACKS
-trackn_volume    	org *+TRACKS
-trackn_distor    	org *+TRACKS
-trackn_shiftfrq	        org *+TRACKS
-	
-	IFT FEAT_PORTAMENTO
-trackn_portafrqc        org *+TRACKS
-trackn_portafrqa        org *+TRACKS
-trackn_portaspeed       org *+TRACKS
-trackn_portaspeeda      org *+TRACKS
-trackn_portadepth       org *+TRACKS
-	EIF
+trackn_db		org *+TRACKS
+trackn_hb		org *+TRACKS
+trackn_idx		org *+TRACKS
+trackn_pause		org *+TRACKS
+trackn_note		org *+TRACKS
+trackn_volume		org *+TRACKS
+trackn_distor 		org *+TRACKS
+trackn_shiftfrq		org *+TRACKS
 
-trackn_instrx2  	org *+TRACKS
-trackn_instrdb  	org *+TRACKS
-trackn_instrhb  	org *+TRACKS
-trackn_instridx  	org *+TRACKS
-trackn_instrlen  	org *+TRACKS
-trackn_instrlop 	org *+TRACKS
+	IFT FEAT_PORTAMENTO
+trackn_portafrqc 	org *+TRACKS
+trackn_portafrqa 	org *+TRACKS
+trackn_portaspeed 	org *+TRACKS
+trackn_portaspeeda 	org *+TRACKS
+trackn_portadepth 	org *+TRACKS
+	EIF
+	
+trackn_instrx2		org *+TRACKS
+trackn_instrdb		org *+TRACKS
+trackn_instrhb		org *+TRACKS
+trackn_instridx		org *+TRACKS
+trackn_instrlen		org *+TRACKS
+trackn_instrlop		org *+TRACKS
 trackn_instrreachend	org *+TRACKS
 trackn_volumeslidedepth org *+TRACKS
 trackn_volumeslidevalue org *+TRACKS
-	
+
 	IFT FEAT_VOLUMEMIN
 trackn_volumemin	org *+TRACKS
 	EIF
-
-FEAT_EFFECTS equ FEAT_EFFECTVIBRATO||FEAT_EFFECTFSHIFT
 	
+FEAT_EFFECTS equ FEAT_EFFECTVIBRATO||FEAT_EFFECTFSHIFT
 	IFT FEAT_EFFECTS
 trackn_effdelay		org *+TRACKS
 	EIF
@@ -146,48 +121,115 @@ trackn_effvibratoa	org *+TRACKS
 	IFT FEAT_EFFECTFSHIFT
 trackn_effshift		org *+TRACKS
 	EIF
-
-trackn_tabletypespeed   org *+TRACKS
 	
+trackn_tabletypespeed 	org *+TRACKS
+
 	IFT FEAT_TABLEMODE
 trackn_tablemode	org *+TRACKS
 	EIF
-
+	
 trackn_tablenote	org *+TRACKS
 trackn_tablea		org *+TRACKS
 trackn_tableend		org *+TRACKS
-	
+
 	IFT FEAT_TABLEGO
 trackn_tablelop		org *+TRACKS
 	EIF
-
-trackn_tablespeeda	org *+TRACKS
 	
+trackn_tablespeeda	org *+TRACKS
+
 	IFT FEAT_FILTER
 trackn_command		org *+TRACKS
+	EIF
+	
+	IFT FEAT_FILTER
 trackn_filter		org *+TRACKS
 	EIF
-
-trackn_audf     	org *+TRACKS
-trackn_audc     	org *+TRACKS
-
-	IFT FEAT_AUDCTLMANUALSET
-trackn_audctl    	org *+TRACKS
+	
+	IFT FEAT_TABLE_MANUAL
+trackn_pointertable	org *+TRACKS	
 	EIF
+	
+	IFT FEAT_AGGRESSIVE_INIT
+trackn_flags		org *+TRACKS
+	EIF
+	
+	IFT FEAT_AUDCTLMANUALSET
+trackn_audctl		org *+TRACKS
+	EIF	
+	
+trackn_audf		org *+TRACKS
+trackn_audc		org *+TRACKS
 
 v_aspeed		org *+1
+
 track_endvariables
-
-; Let's not forget the tables and other RMT data! 
-
-	;icl "rmtdata.a65"
+	
+	org PLAYER-$0200	; I need to improve the label organisation here as well, also do I really need to org there? my memory is hazy why I did this...
+	
+	IFT FEAT_AUDCTLMANUALSET
+AUDCTLBITS	; bits to test for AUDCTL lookup tables
+POLY9	dta $80	; bit 7
+CH1_179	dta $40	; bit 6
+CH3_179	dta $20	; bit 5
+JOIN_12	dta $10	; bit 4
+JOIN_34	dta $08	; bit 3
+HPF_CH1	dta $04	; bit 2
+HPF_CH2	dta $02	; bit 1
+CLOCK15	dta $01	; bit 0
+	EIF	
+	
+	IFT FEAT_FULL_TABLES_HIJACK
+TABLES_MSB
+DISTORTIONS equ *+1
+	dta >PAGE_DISTORTION_A,$00
+	dta >PAGE_DISTORTION_2,$20
+	dta >PAGE_DISTORTION_A,$40
+	dta >PAGE_DISTORTION_A,$A0
+	dta >PAGE_DISTORTION_A,$80
+	dta >PAGE_DISTORTION_A,$A0
+	dta >PAGE_DISTORTION_C,$C0
+	dta >PAGE_DISTORTION_E,$C0
+	EIF
+	
+	IFT FEAT_EFFECTVIBRATO
+vibtabbeg 
+	dta 0,vib1-vib0,vib2-vib0,vib3-vib0
+vib0	dta 0
+vib1	dta 1,-1,-1,1
+vib2	dta 1,0,-1,-1,0,1
+vib3	dta 1,1,0,-1,-1,-1,-1,0,1,1
+vibtabnext
+	dta vib0-vib0+0
+	dta vib1-vib0+1,vib1-vib0+2,vib1-vib0+3,vib1-vib0+0
+	dta vib2-vib0+1,vib2-vib0+2,vib2-vib0+3,vib2-vib0+4,vib2-vib0+5,vib2-vib0+0
+	dta vib3-vib0+1,vib3-vib0+2,vib3-vib0+3,vib3-vib0+4,vib3-vib0+5,vib3-vib0+6,vib3-vib0+7,vib3-vib0+8,vib3-vib0+9,vib3-vib0+0
+	EIF	
+	
+	org PLAYER-$0100
+volumetab
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	dta $00,$00,$00,$00,$00,$00,$00,$00,$01,$01,$01,$01,$01,$01,$01,$01
+	dta $00,$00,$00,$00,$01,$01,$01,$01,$01,$01,$01,$01,$02,$02,$02,$02
+	dta $00,$00,$00,$01,$01,$01,$01,$01,$02,$02,$02,$02,$02,$03,$03,$03
+	dta $00,$00,$01,$01,$01,$01,$02,$02,$02,$02,$03,$03,$03,$03,$04,$04
+	dta $00,$00,$01,$01,$01,$02,$02,$02,$03,$03,$03,$04,$04,$04,$05,$05
+	dta $00,$00,$01,$01,$02,$02,$02,$03,$03,$04,$04,$04,$05,$05,$06,$06
+	dta $00,$00,$01,$01,$02,$02,$03,$03,$04,$04,$05,$05,$06,$06,$07,$07
+	dta $00,$01,$01,$02,$02,$03,$03,$04,$04,$05,$05,$06,$06,$07,$07,$08
+	dta $00,$01,$01,$02,$02,$03,$04,$04,$05,$05,$06,$07,$07,$08,$08,$09
+	dta $00,$01,$01,$02,$03,$03,$04,$05,$05,$06,$07,$07,$08,$09,$09,$0A
+	dta $00,$01,$01,$02,$03,$04,$04,$05,$06,$07,$07,$08,$09,$0A,$0A,$0B
+	dta $00,$01,$02,$02,$03,$04,$05,$06,$06,$07,$08,$09,$0A,$0A,$0B,$0C
+	dta $00,$01,$02,$03,$03,$04,$05,$06,$07,$08,$09,$0A,$0A,$0B,$0C,$0D
+	dta $00,$01,$02,$03,$04,$05,$06,$07,$07,$08,$09,$0A,$0B,$0C,$0D,$0E
+	dta $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
 
 ;***************************;
 ;* Set of RMT main vectors *;
 ;***************************;
-
         org PLAYER
-	
+
 RASTERMUSICTRACKER
 	jmp rmt_init
 	jmp rmt_play
@@ -195,28 +237,29 @@ RASTERMUSICTRACKER
 	jmp rmt_silence
 	jmp SetPokey
 	IFT FEAT_SFX
-	jmp rmt_sfx	;* A=note(0,..,60),X=channel(0,..,3 or 0,..,7),Y=instrument*2(0,2,4,..,126)
+	jmp rmt_sfx			;* A=note(0,..,60),X=channel(0,..,3 or 0,..,7),Y=instrument*2(0,2,4,..,126)
 	EIF
-
+	
 rmt_init
 	stx ns
 	sty ns+1
 	IFT FEAT_NOSTARTINGSONGLINE==0
 	pha
 	EIF
+		
 	IFT track_endvariables-track_variables>255
 	ldy #0
 	tya
-
-ri0	sta track_variables,y
+ri0	
+	sta track_variables,y
 	sta track_endvariables-$100,y
 	iny
 	bne ri0
 	ELS
 	ldy #track_endvariables-track_variables
 	lda #0
-
-ri0	sta track_variables-1,y
+ri0	
+	sta track_variables-1,y
 	dey
 	bne ri0
 	EIF
@@ -238,8 +281,8 @@ ri0	sta track_variables-1,y
 	sta v_ainstrspeed
 	EIF
 	ldy #8
-
-ri1	lda (ns),y
+ri1	
+	lda (ns),y
 	sta p_tis-8,y
 	iny
 	cpy #8+8
@@ -279,54 +322,63 @@ ri1	lda (ns),y
 	sta p_song+1
 	EIF
 	jsr GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
-
+	
 rmt_silence
 	IFT STEREOMODE>0
 	lda #0
 	sta $d208
 	sta $d218
-	ldy #3   ; when stereo, same as below applies
+	ldy #3
 	sty $d20f
 	sty $d21f
-        sty v_skctl
-        sty v_skctl2
-	
+	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER
+	sty v_skctl
+	sty v_skctl2
+	EIF
 	ldy #8
-
-si1	sta $d200,y
+si1	
+	sta $d200,y
 	sta $d210,y
 	dey
 	bpl si1
-	
 	ELS
 	lda #0
 	sta $d208
-	ldy #3   ; set to #3 for normal mode, #$8B will enable Two-Tone permanently
+	ldy #3
 	sty $d20f
-	sty v_skctl
-
+	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER
+	sty v_skctl 
+	EIF
 	ldy #8
-
-si1	sta $d200,y
+si1	
+	sta $d200,y	
 	dey
 	bpl si1
 	EIF
+	
+	IFT FEAT_IS_TRACKER&&FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK&&FEAT_AGGRESSIVE_INIT	
+	lda #<frqtabsawtooth_ch1	; reset the sawtooth pointers
+	sta saw_ch1
+	lda #<frqtabsawtooth_ch3
+	sta saw_ch3		
+	EIF
+	IFT FEAT_IS_TRACKER&&FEAT_FULL_16BIT&&FEAT_BASS16&&FEAT_FULL_TABLES_HIJACK&&FEAT_AGGRESSIVE_INIT 
+	lda #$0A			
+	sta bass16_pointer		; PERMANENTLY change the value until a new CMD6 value is read
+	EIF	
 	IFT FEAT_INSTRSPEED==0
 	lda v_instrspeed
 	ELS
 	lda #FEAT_INSTRSPEED
 	EIF
 	rts
-
 GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 GetSongLine
 	ldx #0
 	stx v_abeat
-
-; RMT Visualiser hack
-
+	
 nn0
-        IFT FEAT_IS_VISUALP
+        IFT FEAT_IS_VISUALP	; RMT Visualiser hack for displaying the pattern and row numbers
 	lda p_song
 	sub MODUL+14
 	sta v_ord
@@ -341,13 +393,14 @@ nn0
 	ror v_ord
 	EIF
 	EIF
-	IFT FEAT_IS_SIMPLEP
+	IFT FEAT_IS_SIMPLEP	; Simple RMT Player hack for colour cycling, change the rasterbar colour ever pattern played
 	lda loop+1
 	add #16
-	sta loop+1              ; change the rasterbar colour every pattern played
+	sta loop+1   
 	EIF
-
-nn1	txa
+	
+nn1	
+	txa
 	tay
 	lda (p_song),y
 	cmp #$fe
@@ -356,37 +409,35 @@ nn1	txa
 	lda (p_trackslbstable),y
 	sta trackn_db,x
 	lda (p_trackshbstable),y
-
-nn1a sta trackn_hb,x
+nn1a 	
+	sta trackn_hb,x
 	lda #0
 	sta trackn_idx,x
 	lda #1
-
-nn1a2 sta trackn_pause,x
+nn1a2 	
+	sta trackn_pause,x
 	lda #$80
 	sta trackn_instrx2,x
 	inx
-
-xtracks01	cpx #TRACKS
+	
+xtracks01	
+	cpx #TRACKS
 	bne nn1
 	lda p_song
 	clc
-
-xtracks02	adc #TRACKS
+xtracks02	
+	adc #TRACKS
 	sta p_song
 	bcc GetTrackLine
 	inc p_song+1
-
+	
 nn1b
 	jmp GetTrackLine
-
 nn2
 	beq nn3
-
 nn2a
 	lda #0
 	beq nn1a2
-
 nn3
 	ldy #2
 	lda (p_song),y
@@ -397,29 +448,25 @@ nn3
 	stx p_song
 	ldx #0
 	beq nn0
-
+	
 GetTrackLine
 oo0
 oo0a
 	IFT FEAT_CONSTANTSPEED==0
 	lda #$ff
-
 v_speed equ *-1
 	sta v_bspeed
 	EIF
 	ldx #-1
-
 oo1
 	inx
 	dec trackn_pause,x
 	bne oo1x
-
 oo1b
 	lda trackn_db,x
 	sta ns
 	lda trackn_hb,x
 	sta ns+1
-
 oo1i
 	ldy trackn_idx,x
 	inc trackn_idx,x
@@ -435,7 +482,6 @@ oo1i
 	lsr @
 	and #$3f*2
 	sta trackn_instrx2,x
-
 oo1a
 	lda #1
 	sta trackn_pause,x
@@ -450,23 +496,19 @@ oo1a
 	IFT FEAT_GLOBALVOLUMEFADE
 	sec
 	sbc #$00
-
 RMTGLOBALVOLUMEFADE equ *-1
 	bcs voig
 	lda #0
-
 voig
 	EIF
 	and #$f0
 	sta trackn_volume,x
-
 oo1x
-
-xtracks03sub1	cpx #TRACKS-1
+xtracks03sub1	
+	cpx #TRACKS-1
 	bne oo1
 	IFT FEAT_CONSTANTSPEED==0
 	lda #$ff
-
 v_bspeed equ *-1
 	sta v_speed
 	ELS
@@ -474,7 +516,7 @@ v_bspeed equ *-1
 	EIF
 	sta v_aspeed
 	jmp InitOfNewSetInstrumentsOnly
-
+	
 oo2
 	cmp #63
 	beq oo63
@@ -486,14 +528,12 @@ oo2
 	rol @
 	sta trackn_pause,x
 	jmp oo1x
-
 oo62_b
 	iny
 	lda (ns),y
 	sta trackn_pause,x
 	inc trackn_idx,x
 	jmp oo1x
-
 oo63
 	lda reg1
 	IFT FEAT_CONSTANTSPEED==0
@@ -503,7 +543,6 @@ oo63
 	sta v_bspeed
 	inc trackn_idx,x
 	jmp oo1i
-
 oo63_1X
 	EIF
 	cmp #255
@@ -512,31 +551,30 @@ oo63_1X
 	lda (ns),y
 	sta trackn_idx,x
 	jmp oo1i
-
 oo63_11
 	jmp GetSongLine
-
-p2xrmtp3	jmp rmt_p3
-
-p2x0 dex
-	 bmi p2xrmtp3
-
+	
+p2xrmtp3	
+	jmp rmt_p3
+p2x0 	
+	dex
+	bmi p2xrmtp3
+	
 InitOfNewSetInstrumentsOnly
-
-p2x1    ldy trackn_instrx2,x
+p2x1 	
+	ldy trackn_instrx2,x
 	bmi p2x0
 	IFT FEAT_SFX
 	jsr SetUpInstrumentY2
 	jmp p2x0
-
+	
 rmt_sfx
 	sta trackn_note,x
-	lda #$f0				;* sfx note volume*16
-
+	lda #$f0		;* sfx note volume*16
 RMTSFXVOLUME equ *-1		;* label for sfx note volume parameter overwriting
 	sta trackn_volume,x
 	EIF
-
+	
 SetUpInstrumentY2
 	lda (p_instrstable),y
 	sta trackn_instrdb,x
@@ -616,6 +654,11 @@ SetUpInstrumentY2
 	sta trackn_effshift,x
 	EIF
 	EIF
+	IFT FEAT_TABLE_MANUAL	; Manual tuning table loaded from instruments, based on the unused 12th byte, this is not yet fully implemented into RMT
+	ldy #11
+	lda (nt),y
+	sta trackn_pointertable,x	
+	EIF
 	lda #128
 	sta trackn_volumeslidevalue,x
 	sta trackn_instrx2,x
@@ -632,18 +675,17 @@ SetUpInstrumentY2
 	tay
 	lda (nt),y
 	sta trackn_tablenote,x
-
 xata_rtshere
 	IFT FEAT_SFX||FEAT_IS_TRACKER
 	rts ; a rts is mandatory for the 'tracker.obx' binary, else a lot of things break in RMT!
 	ELS
 	jmp p2x0
 	EIF
-
+	
 rmt_play
-
 rmt_p0
 	jsr SetPokey
+	
 rmt_p1
 	IFT FEAT_INSTRSPEED==0||FEAT_INSTRSPEED>1
 	dec v_ainstrspeed
@@ -651,35 +693,101 @@ rmt_p1
 	EIF
 	IFT FEAT_INSTRSPEED==0
 	lda #$ff
-
 v_instrspeed	equ *-1
 	sta v_ainstrspeed
 	ELI FEAT_INSTRSPEED>1
 	lda #FEAT_INSTRSPEED
 	sta v_ainstrspeed
 	EIF
-
+	
 rmt_p2
 	dec v_aspeed
 	bne rmt_p3
 	inc v_abeat
 	lda #$ff
-
 v_abeat equ *-1
 	cmp #$ff
-
 v_maxtracklen equ *-1
 	beq p2o3
 	jmp GetTrackLine
-
 p2o3
 	jmp GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
-
-go_ppnext	jmp ppnext
+go_ppnext	
+	jmp ppnext
 
 rmt_p3
+xtracks05sub1	
+	ldx #TRACKS-1
+	
+; going to attempt an even more aggressive method here... which may save on the CMD7 fuckery as well.	
+; this seems to do the job well enough currently to avoid being 1 frame late, so far...
 
-xtracks05sub1	ldx #TRACKS-1
+	IFT FEAT_AUDCTLMANUALSET
+	IFT FEAT_GET_AUDCTL_EARLY||FEAT_COMMAND7
+	IFT FEAT_COMMAND7		;&&[FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY]
+dodex	
+	lda trackn_instrhb,x
+	beq dexnext			; process the next channel's bytes immediately if empty
+	sta ns+1
+	lda trackn_instrdb,x
+	sta ns
+	ldy trackn_instridx,x
+	iny
+	lda (ns),y			; instrument distortion and cmd
+	and #$70			; clear distortion and other bits
+	cmp #$70 			; command 7? must be equal to #$70 ONLY
+	bne dexnext			; always skip if CMD7 is not active
+	iny
+	lda (ns),y			; instrument $XY parameter
+	cmp #$FC                	; failsafe -> Volume Only Mode value or SKCTL toggle above this value
+	bcs dexnext	        	; skip overwriting trackn_audctl if anything is detected
+	sta trackn_audctl,x     	; store the new value in memory and overwrite anything left before previous value		
+dexnext
+	dex
+	bmi dexdone
+	bpl dodex
+dexdone
+	ldx #TRACKS-1
+	EIF
+	IFT FEAT_GET_AUDCTL_EARLY	
+	lda trackn_audctl+0
+	ora trackn_audctl+1
+	ora trackn_audctl+2
+	ora trackn_audctl+3
+	sta v_audctl	
+	IFT TRACKS>4
+	
+;	lda v_audctl2
+;	sta old_v_audctl2
+	
+	lda trackn_audctl+4
+	ora trackn_audctl+5
+	ora trackn_audctl+6
+	ora trackn_audctl+7
+	sta v_audctl2		
+	EIF
+	EIF
+	EIF
+	ELS
+	IFT FEAT_GET_AUDCTL_EARLY	; if AUDCTL early is set anyway, it is set to 0 immediately, it may be overwritten by AUTOFILTER or BASS16 when needed
+	lda #0
+	sta v_audctl
+	IFT TRACKS>4
+	sta v_audctl2
+	EIF
+	EIF
+	EIF	
+
+	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
+	jmp start_aggressive_init
+pp1a	
+	lda v_audctl
+	sta old_v_audctl
+	IFT TRACKS>4
+	lda v_audctl2
+	sta old_v_audctl2
+	EIF	
+	EIF
 
 pp1
 	lda trackn_instrhb,x
@@ -703,181 +811,119 @@ pp1
 	beq pp2
 	lda #$80
 	sta trackn_instrreachend,x
-
 pp1b
 	lda trackn_instrlop,x
-
-pp2	sta trackn_instridx,x
+pp2	
+	sta trackn_instridx,x
 	lda reg1
 	IFT TRACKS>4
 	cpx #4
 	bcc pp2s
-	:4 lsr @
-        EIF
+	lsr @
+	lsr @
+	lsr @
+	lsr @
 pp2s
-	and #$0F
-	ora trackn_volume,x     ; new volume lookup table method, special thanks to TakuikaNinja for the help!
-	lsr @                   ; divide the pointer by 2, since only 128 bytes are used for the table
-	tay                     ; it also shifts bit 0 into the carry flag (0 - even, 1 - odd)
-        lda volumetab,y         ; original volume code from a 256 bytes lookup table
-        bcc pp2seven            ; carry flag has been maintained since the LSR
-
-pp2sodd 
-        and #$0F                ; clear the leftmost nybble, then continue like normal from here
-        jmp pp2scont
-
-pp2seven        
-        :4 lsr @                ; shift the leftmost nybble down, then continue like normal from here
-
-; Start of hijack mess... again
-
-pp2scont
-        sta tmp                 ; backup the volume value
-	lda reg2
+	EIF
+	and #$0f
+	ora trackn_volume,x
 	tay
-	and #$0e                ; clear everything but the RMT slot value
-	sta tmp2                ; temporary backup
-	stx tmp3                ; index backup
-pp2scont_a
+	lda volumetab,y
+	sta tmp
+
+	IFT FEAT_TABLE_MANUAL		; Manual tuning table loaded from instruments, this is currently not fully implemented into RMT...
+	lda trackn_pointertable,x
+	beq pp2sno			; a value of 0 means no pointer will be used, thus, can be skipped immediately
+	tay
+	and #$0F
+	ora #$B0
+	sta nr+1			; Bx00, where x is manipulated
 	tya
-	and #$70                ; clear distortion and other bits
-	cmp #$70                ; command 7? must be equal to #$70 ONLY
-	bne hijack_start        ; nope, continue like normal
-	lda reg3                ; temporary XY parameter in memory
-	cmp #$FC                ; failsafe -> Volume Only Mode value or SKCTL toggle
-	bcs hijack_start        ; skip overwriting trackn_audctl if anything is detected
-	sta trackn_audctl,x     ; store in memory and overwrite the previous value
-        tay                     ; backup to index y for quick transfer between steps
-pp2scont_b
-        cpx #4                  ; 0-3 Left POKEY, 4-7 Right POKEY
-        bcc hijack_p0           ; less than 4, continue
-        jmp hijack_start_a      ; index manipulation ahead
+	and #$C0
+	sta nr				; B0x0, where is manipulated
+	lda reg2
+	and #$0e
+	tay
+	jmp pp2syes
+	EIF
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of the new tuning tables code... Should be much faster and efficient this time...
 
-hijack_start	
-        lda trackn_audctl,x     ; workaround tentative... if not 0, it may have the wanted value...
-        cpx #4                  ; 0-3 Left POKEY, 4-7 Right POKEY
-        bcc hijack_start_b      ; less than 4
-        ora v_audctl2           ; Right POKEY AUDCTL value
-        tay                     ; backup to index y for quick transfer between steps
-hijack_start_a
-        txa                     ; copy index x to accumulator
-        sub #4                  ; substract 4 from it, for easier checks with Right POKEY channels
-        tax
-	tya                     ; get tmp2 back to accumulator   
-	jmp hijack_p0           ; continue
-hijack_start_b
-        ora v_audctl            ; the old value will be combined to the new one, at worst, it will be 1 frame late
-        tay                     ; backup to index y for quick transfer between steps    
-
-hijack_p0
-        and #$08                ; join 3+4?
-        beq hijack_p2           ; nope, skip to the next step
-        tya                     ; get the AUDCTL backup in the accumulator
-        and #$20                ; 1.79mhz ch3?
-        beq hijack_p3           ; nope, skip to the next step
-        cpx #$03                ; channel 4?
-        beq hijack_p10          ; yes, jump straight to the next part
-        cpx #$02                ; channel 3?
-        beq hijack_p11          ; yes, jump straight to the next part
-        bne hijack_p3           ; failsafe in case nothing is matching, 1.79mhz was checked already
-
-hijack_p2
-        tya                     ; get the AUDCTL backup in the accumulator
-        and #$20                ; 1.79mhz ch3?
-        beq hijack_p3           ; nope, skip to the next step
-        cpx #$02                ; channel 3?
-        beq hijack_p8           ; yes, jump straight to the next part
-
-hijack_p3
-        tya                     ; get the AUDCTL backup in the accumulator
-        and #$10                ; join 1+2?
-        beq hijack_p4           ; nope, skip to the next step
-        tya                     ; get the AUDCTL backup in the accumulator
-        and #$40                ; 1.79mhz ch1?
-        beq hijack_p6           ; nope, skip to the next step
-        cpx #$01                ; channel 2?
-        beq hijack_p10          ; yes, jump straight to the next part
-        cpx #$00                ; channel 1?
-        beq hijack_p11          ; yes, jump straight to the next part
-        bne hijack_p6           ; failsafe in case nothing is matching, 1.79mhz was checked already
-
-hijack_p4
-        tya                     ; get the AUDCTL backup in the accumulator
-        and #$40                ; 1.79mhz ch1?
-        beq hijack_p6           ; nope, skip to the next step
-        cpx #$00                ; channel 1?
-        beq hijack_p8           ; yes, jump straight to the next part
-
-hijack_p6 
-        tya                     ; get the AUDCTL backup in the accumulator
-        ldy tmp2                ; load the RMT slot backup in index y
-        and #$01                ; 15khz?
-        beq no_hijack           ; nope, skip the entire hijack process
-
-; 15khz tables
-
-hijack_p7
-	lda #>frqtab_15khz                   ; hijack the pointer for lookup tables to load
-	sta nr+1                             ; write the high byte in memory
-	lda tabbeganddistor_15khz,y          ; 15khz tables map
-	sta nr                               ; write the low byte in memory
-	lda tmp                              ; volume value backup
-	ora tabbeganddistor_15khz+1,y	     ; combine with the distortion from the tables map
-        jmp pp2scont_finished                ; done, finish the hijack
-
-; 1.79mhz tables
-
-hijack_p8
-	ldy tmp2                             ; load the RMT slot value
-	lda #>frqtab_179mhz                  ; hijack the pointer for lookup tables to load
-	sta nr+1                             ; write the high byte in memory
-	lda tabbeganddistor_179mhz,y         ; 1.79mhz tables map
-	sta nr                               ; write the low byte in memory
-	lda tmp                              ; volume value backup
-	ora tabbeganddistor_179mhz+1,y	     ; combine with the distortion from the tables map
-        jmp pp2scont_finished                ; done, finish the hijack
-
-; 16-bit tables, high byte
-
-hijack_p10	
-	ldy tmp2                             ; load the RMT slot value
-	lda #>frqtab_16bit                   ; hijack the pointer for lookup tables to load
-	sta nr+1                             ; write the high byte in memory
-	lda tabbeganddistor_16bit_hi,y       ; 16-bit high byte tables map
-	sta nr                               ; write the low byte in memory
-        lda tmp                              ; volume value backup
-	ora tabbeganddistor_16bit_hi+1,y     ; combine with the distortion from the tables map
-        jmp pp2scont_finished                ; done, finish the hijack
-
-; 16-bit tables, low byte
-
-hijack_p11
-	ldy tmp2                             ; load the RMT slot value
-	lda #>frqtab_16bit                   ; hijack the pointer for lookup tables to load
-	sta nr+1                             ; write the high byte in memory
-	lda tabbeganddistor_16bit_lo,y       ; 16-bit low byte tables map
-	sta nr                               ; write the low byte in memory
-        ;lda tmp                              ; volume value backup, PoP exclusive hack
-        ;ora #$C0                             ; distorion C, PoP exclusive hack       
-        lda #0                               ; volume and distortion 0, since this channel will be muted
-        jmp pp2scont_finished                ; done, finish the hijack
-
-; back to the original RMT code by Raster, nothing is hijacked
-
-no_hijack
-	lda #>frqtab_64khz
-	sta nr+1
-	lda tabbeganddistor_64khz,y
+do_tuning_tables
+	lda reg2		; Distortion and Command
+	and #$0E		; Only keep the Distortion bits
+	tay			; will be used for the tables MSB pointer, and the Distortion itself	
+	cpy #$06		; are we using Distortion 6?
+	bne check_flags		; if not equal, continue like normal
+	lda tmp			; volume backup
+	beq check_flags		; if the volume is 0, continue like normal	
+	jmp do_bass16		;* process the BASS16 code from here if the initial test passed
+check_flags
+	lda trackn_flags,x	; flags previously set during the aggressive rmt_p3 initialisation, they are unconditional
+	beq store_tables_lsb	; #$00 = 64khz mode, unconditional
+	bmi check_valid_16bit	; #$80 = Valid 16-bit channel, #$FF = Invalid 16-bit channel
+	cmp #$40		; is the 1.79mhz flag set? if the value is above #$40, the sawtooth flag of #$7F is also set
+	beq store_tables_lsb	; if equal, the tables LSB pointer is the flag value, no further action needed	
+	bcc check_15khz		; a value below #$40 means the only possible outcome is a value of #$01, for 15khz mode
+check_sawtooth
+	cpy #$0A		; are we also using Distortion A?
+	beq check_sawtooth_b	; if equal, Distortion A is used, else, the sawtooth code is immediately skipped as a failsafe
+check_sawtooth_a
+	lda #$40		; 1.79mhz mode flag, which is also the tables LSB pointer
+	bne store_tables_lsb	; unconditional
+check_sawtooth_b
+	lda tmp			; volume value backup
+	beq check_sawtooth_a	; volume 0 is immediate skip of sawtooth code
+	jmp do_sawtooth		;* process the sawtooth code from here if all tests passed
+check_15khz
+	cpy #$0C		; are we in Distortion C/E?
+	bcs check_15khz_b	; if equal or above, use the Distortion C 15khz table, else, use the Distortion A 15khz table
+	lda #<frqtabpure_15khz	; Distortion A 15khz table LSB
+	bne check_15khz_c	; unconditional
+check_15khz_b
+	lda #<frqtabbuzzy_15khz	; Distortion C 15khz table LSB
+check_15khz_c
 	sta nr
-	lda tmp
-	ora tabbeganddistor_64khz+1,y	
+	lda #>PAGE_EXTRA_0	; tables MSB pointer, it's the same one regardless of the table used
+	bne store_tables_lsb_a	; unconditional 
+check_valid_16bit
+	cmp #$FF		; is the Invalid flag set?
+	beq hellno		; branch to failsafe if yes, we do not want sound in the Invalid channels!
+check_valid_16bit_a	
+	cpy #$06		; are we using Distortion 6?
+	bne check_valid_16bit_b	; if not equal, continue like normal
+	jmp process_bass16	; else, execute the BASS16 code immediately since the 16-bit flag is set
+check_valid_16bit_b
+	sta nr			; 16-bit hi LSB
+	lda #$C0		; 64 bytes further for the 16-bit LSB table
+	sta pointer16bitlo  	; 16-bit lo LSB
+	lda #0			; no volume output, Distortion also won't matter
+	sta trackn_audc-1,x	; process the next channel's AUDC early, since 16-bit mode being active	will skip it
+	lda TABLES_MSB,y
+	sta pointer16bitlo+1	; 16-bit lo MSB
+	bne store_tables_lsb_a	; unconditional, finish in the middle of the 64khz/1.79mhz branch
+hellno
+	lda #0			; no volume and frequency of 0, to set the channel to a unused state
+	sta trackn_audc,x
+	sta trackn_audf,x
+	jmp ppnext 		; skip this channel entirely if the failsafe branch occured
+store_tables_lsb
+	sta nr			; tables LSB pointer, divided in slices of 64 bytes each
+	lda TABLES_MSB,y
+store_tables_lsb_a
+	sta nr+1		; tables MSB pointer, which is the memory page used for tables divided based on their Distortion
+store_tables_lsb_b
+	lda tmp			; volume value backup
+	ora DISTORTIONS,y	; merge the Distortion and Volume values
+store_tables_lsb_c
+	sta trackn_audc,x	; update the channel's AUDC for the next SetPokey subroutine call
+	
+;* tables pointers hijacking done, finish up with the instruments effects below...
 
-pp2scont_finished
-	ldx tmp3                             ; reload the real index value
-	sta trackn_audc,x                    ; write the new combined value in memory
-
-; End of hijack mess, fucking stereo code was branching too far out of the intended range... I hope this works anyway.
-
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
 InstrumentsEffects
 	IFT FEAT_EFFECTS
 	lda trackn_effdelay,x
@@ -969,44 +1015,43 @@ ei4
 	lda #0
 	sta frqaddcmd2
 	EIF
-	IFT FEAT_COMMAND1||FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND1||FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	lda reg2
 	IFT FEAT_FILTER
 	sta trackn_command,x
 	EIF
-	and #$70
-	IFT 1==[FEAT_COMMAND1+FEAT_COMMAND2+FEAT_COMMAND3+FEAT_COMMAND4+FEAT_COMMAND5+FEAT_COMMAND6+[FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY]]
+AND70	and #$70
+	IFT 1==[FEAT_COMMAND1+FEAT_COMMAND2+FEAT_COMMAND3+FEAT_COMMAND4+FEAT_COMMAND5+FEAT_COMMAND6+FEAT_COMMAND7]		;[FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY]]
 	beq cmd0
 	ELS
 	lsr @
 	lsr @
 	sta jmx+1
-
 jmx	bcc *
 	jmp cmd0
 	nop
 	jmp cmd1
-	IFT FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	nop
 	jmp cmd2
 	EIF
-	IFT FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	nop
 	jmp cmd3
 	EIF
-	IFT FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	nop
 	jmp cmd4
 	EIF
-	IFT FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	nop
 	jmp cmd5
 	EIF
-	IFT FEAT_COMMAND6||FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	nop
 	jmp cmd6
 	EIF
-	IFT FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	nop
 	jmp cmd7
 	EIF
@@ -1017,13 +1062,21 @@ jmx	bcc *
 	sta trackn_command,x
 	EIF
 	EIF
-
 cmd1
 	IFT FEAT_COMMAND1
+	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	lda pointer16bitlo+1
+	beq cmd1a		; 16-bit mode not active
+	lda #0			; force the LSB channel to have empty values as a failsafe
+	sta trackn_audc-1,x
+	sta trackn_audf-1,x
+	EIF
+	EIF
+cmd1a	
 	lda reg3
 	jmp cmd0c
 	EIF
-
 cmd2
 	IFT FEAT_COMMAND2
 	lda reg3
@@ -1031,7 +1084,6 @@ cmd2
 	lda trackn_note,x
 	jmp cmd0a
 	EIF
-
 cmd3
 	IFT FEAT_COMMAND3
 	lda trackn_note,x
@@ -1040,7 +1092,6 @@ cmd3
 	sta trackn_note,x
 	jmp cmd0a
 	EIF
-
 cmd4
 	IFT FEAT_COMMAND4
 	lda trackn_shiftfrq,x
@@ -1050,7 +1101,6 @@ cmd4
 	lda trackn_note,x
 	jmp cmd0a
 	EIF
-
 cmd5
 	IFT FEAT_COMMAND5&&FEAT_PORTAMENTO
 	IFT FEAT_TABLETYPE
@@ -1062,7 +1112,6 @@ cmd5
 	adc trackn_tablenote,x
 	jmp cmd5ax
 	EIF
-
 cmd5a1
 	lda trackn_note,x
 	clc
@@ -1070,17 +1119,14 @@ cmd5a1
 	cmp #61
 	bcc cmd5a2
 	lda #63
-
 cmd5a2
 	tay
 	lda (nr),y
-
 cmd5ax
 	sta trackn_portafrqc,x
 	ldy reg3
 	bne cmd5a
 	sta trackn_portafrqa,x
-
 cmd5a
 	tya
 	lsr @
@@ -1098,64 +1144,96 @@ cmd5a
 	lda trackn_note,x
 	jmp cmd0a
 	EIF
-
 cmd6
 	IFT FEAT_COMMAND6&&FEAT_FILTER
+	
+	IFT FEAT_FULL_TABLES_HIJACK||FEAT_FULL_16BIT||FEAT_BASS16
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+	lda sawtoothtables+1
+	bne cmd6b		; sawtooth active, failsafe
+	EIF
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	lda pointer16bitlo+1
+	bne cmd6b		; 16-bit mode active, failsafe
+	EIF
+	EIF
+	
+cmd6a	
 	lda reg3
 	clc
 	adc trackn_filter,x
 	sta trackn_filter,x
+	
+cmd6b
 	lda trackn_note,x
 	jmp cmd0a
 	ELI FEAT_COMMAND6
 	lda trackn_note,x
 	jmp cmd0a
 	EIF
-
 cmd7
+	IFT FEAT_COMMAND7
+	
 	IFT FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
-	IFT FEAT_COMMAND7SETNOTE
+	IFT FEAT_TWO_TONE
 	lda reg3
-	IFT FEAT_COMMAND7VOLUMEONLY
-	cmp #$FF 		; FF is unlikely with AUDCTL in normal situation
-	beq cmd7a
-	cmp #$FE 		; FE is unlikely with AUDCTL in normal situation
-	beq cmd7c
-	cmp #$FD 		; FD is unlikely with AUDCTL in normal situation
-	bne cmd7f 		; failsafe if no values are matching
-cmd7b				; disable Two-Tone Filter
-	lda #3
-	bne cmd7d 		; unconditional
-cmd7c				; toggle Two-Tone Filter
-	lda #$8B
+	bpl cmd7f		; failsafe, quick and immediate, there will be no Two-Tone toggle, or volume only output, since the command was most likely used to set the AUDCTL bits
+	cmp #$FD		; #$FD toggles Two-Tone off
+	bcc cmd7f		; no values will match if less than this, failsafe in case the BPL above didn't catch it
+	beq cmd7b		; turn off the Two-Tone Filter if equal
+	cmp #$FE		; #$FE toggles Two-Tone on
+	beq cmd7c		; turn on the Two-Tone Filter if equal
+	IFT FEAT_COMMAND7VOLUMEONLY	
+	bne cmd7a		; #$FF sets volume only mode, and will always be that value here, unconditional branching
+	ELS
+	bne cmd7f		; skip ahead, and don't set volume only mode either
+	EIF
+cmd7b				
+	lda #3			; disable the Two-Tone Filter with this value
+	bne cmd7d		; unconditional
+cmd7c				
+	lda #$8B		; enable the Two-Tone Filter with this value
 cmd7d
+	IFT TRACKS>4
 	cpx #4
 	bcc cmd7e		; less than 4
 	sta v_skctl2		; SKCTL, Right POKEY 
-	
 	bcs cmd7f		; carry flag still set, unconditional
+	EIF
 cmd7e
 	sta v_skctl		; SKCTL, Left POKEY
+	ELS
+	
+	IFT FEAT_COMMAND7VOLUMEONLY	
+	lda reg3
+	bpl cmd7f		; failsafe, quick and immediate, there will be no Two-Tone toggle, or volume only output, since the command was most likely used to set the AUDCTL bits
+	cmp #$FF
+	beq cmd7a		; set volume only mode if equal
+	EIF
 	EIF
 cmd7f
-	lda trackn_note,x 	; this is the expected variable in memory
-	jmp cmd0a
-	EIF
+	lda trackn_note,x	; this is the expected variable in memory
+	jmp cmd0a 
+cmd7a
+
 	IFT FEAT_COMMAND7VOLUMEONLY
-cmd7a				; volume only mode
 	lda trackn_audc,x
 	ora #$f0
 	sta trackn_audc,x
 	lda trackn_note,x
 	jmp cmd0a
 	EIF
+	
+	ELS
+	lda trackn_note,x	; this is the expected variable in memory
+	jmp cmd0a 
 	EIF
-
+	
+	EIF
 cmd0
 	lda trackn_note,x
 	clc
 	adc reg3
-
 cmd0a
 	IFT FEAT_TABLETYPE
 	ldy trackn_tabletypespeed,x
@@ -1168,9 +1246,58 @@ cmd0a
 	lda #0
 	sta trackn_audc,x
 	lda #63
-
 cmd0a1
 	tay
+	
+	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	lda pointer16bitlo+1
+	beq cmd0a2		; 16-bit mode not active
+	lda (nr),y
+	sta trackn_audf,x	; get and store the MSB early
+	lda trackn_shiftfrq,x
+	IFT FEAT_COMMAND2
+	clc
+	adc frqaddcmd2
+	EIF
+	sta tmp			; get and store the frequency shift early, combined if CMD2 is also enabled
+	bmi cmd0a1sub		; will subtract 1 from the MSB if negative on overflow
+cmd0a1add
+	lda (pointer16bitlo),y
+	clc
+	adc tmp
+	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	bcc cmd0a1adddone	; no overflow, done
+	inc trackn_audf,x	; increment the MSB if the value went past #$FF
+cmd0a1adddone	
+	jmp pp9			; done
+cmd0a1sub
+	lda (pointer16bitlo),y
+	clc
+	adc tmp
+	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	bcs cmd0a1adddone	; no overflow, done
+	dec trackn_audf,x	; decrement the MSB if the value went past #$00
+cmd0a1subdone	
+	jmp pp9			; done
+	EIF
+	
+cmd0a2	
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+	lda sawtoothtables+1
+	beq cmd0a3		; sawtooth not active
+	lda (sawtoothtables),y
+	clc
+	adc trackn_shiftfrq,x
+	IFT FEAT_COMMAND2
+	clc
+	adc frqaddcmd2
+	EIF	
+	sta trackn_audf+2,x	; since we're in channel 1 of either POKEY, offset +2 will always be the 3rd channel
+	EIF
+	EIF
+
+cmd0a3
 	lda (nr),y
 	clc
 	adc trackn_shiftfrq,x
@@ -1178,18 +1305,72 @@ cmd0a1
 	clc
 	adc frqaddcmd2
 	EIF
+	
 	IFT FEAT_TABLETYPE
 	jmp cmd0c
-
 cmd0b
 	cmp #61
 	bcc cmd0b1
 	lda #0
 	sta trackn_audc,x
 	lda #63
-
 cmd0b1
 	tay
+	
+	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	lda pointer16bitlo+1
+	beq cmd0b2		; 16-bit mode not active
+	lda (nr),y
+	sta trackn_audf,x	; get and store the MSB early
+	lda trackn_shiftfrq,x
+	clc
+	adc trackn_tablenote,x
+	clc	
+	IFT FEAT_COMMAND2
+	clc
+	adc frqaddcmd2
+	EIF
+	sta tmp			; get and store the frequency shift early, combined if CMD2 is also enabled
+	bmi cmd0b1sub		; will subtract 1 from the MSB if negative on overflow
+cmd0b1add
+	lda (pointer16bitlo),y
+	clc
+	adc tmp
+	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	bcc cmd0b1adddone	; no overflow, done
+	inc trackn_audf,x	; increment the MSB if the value went past #$FF
+cmd0b1adddone	
+	jmp pp9			; done
+cmd0b1sub
+	lda (pointer16bitlo),y
+	clc
+	adc tmp
+	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	bcs cmd0b1adddone	; no overflow, done
+	dec trackn_audf,x	; decrement the MSB if the value went past #$00
+cmd0b1subdone	
+	jmp pp9			; done
+	EIF
+	
+cmd0b2	
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+	lda sawtoothtables+1
+	beq cmd0b3		; sawtooth not active
+	lda trackn_shiftfrq,x
+	clc
+	adc trackn_tablenote,x
+	clc
+	adc (sawtoothtables),y
+	IFT FEAT_COMMAND2
+	clc
+	adc frqaddcmd2
+	EIF	
+	sta trackn_audf+2,x	; since we're in channel 1 of either POKEY, offset +2 will always be the 3rd channel
+	EIF
+	EIF
+
+cmd0b3
 	lda trackn_shiftfrq,x
 	clc
 	adc trackn_tablenote,x
@@ -1202,7 +1383,7 @@ cmd0b1
 	EIF
 cmd0c
 	sta trackn_audf,x
-
+	
 pp9
 	IFT FEAT_PORTAMENTO
 	lda trackn_portaspeeda,x
@@ -1220,216 +1401,563 @@ pp9
 	cmp trackn_portafrqc,x
 	bcs pps8
 	jmp pps9
-
 pps1
 	sbc trackn_portadepth,x
 	bcc pps8
 	cmp trackn_portafrqc,x
 	bcs pps9
-
 pps8
 	lda trackn_portafrqc,x
-
 pps9
 	sta trackn_portafrqa,x
-
 pp10
 	lda reg2
 	and #$01
 	beq pp11
 	lda trackn_portafrqa,x
 	clc
-	adc trackn_shiftfrq,x
+	adc trackn_shiftfrq,x	
+	
+pp10a	
 	sta trackn_audf,x
-
 pp11
 	EIF
 
+	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+	lda sawtoothtables+1
+	beq pp11a		; sawtooth not active
+	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
+	sta sawtoothtables
+	sta sawtoothtables+1
+	EIF
+pp11a
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	lda pointer16bitlo+1
+	beq ppnext		; 16-bit mode not active
+	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
+	sta pointer16bitlo
+	sta pointer16bitlo+1
+	dex			; skip the next channel since it was updated early
+	EIF
+	EIF
+	
 ppnext
 	dex
 	bmi rmt_p4
 	jmp pp1
-
 rmt_p4
-	IFT FEAT_AUDCTLMANUALSET
+	IFT FEAT_AUDCTLMANUALSET||FEAT_GET_AUDCTL_EARLY
+	IFT FEAT_GET_AUDCTL_EARLY
+	ldx v_audctl
+	ELS	
 	lda trackn_audctl+0
 	ora trackn_audctl+1
 	ora trackn_audctl+2
 	ora trackn_audctl+3
 	tax
+	stx v_audctl
+	EIF
 	ELS
 	ldx #0
-	EIF
-
-; Channel 1
-filter_ch_1
 	stx v_audctl
+	EIF
+qq1
+	
 	IFT FEAT_FILTER
 	IFT FEAT_FILTERG0L
 	lda trackn_command+0
-	bpl filter_ch_2
+	bpl qq2
 	lda trackn_audc+0
 	and #$0f
-	beq filter_ch_2
+	beq qq2
 	lda trackn_audf+0
 	clc
 	adc trackn_filter+0
 	sta trackn_audf+2
+
+qq1a
 	txa
 	ora #4
 	tax
 	EIF
-
-; Channel 2
-filter_ch_2
+qq2
 	IFT FEAT_FILTERG1L
 	lda trackn_command+1
-	bpl qq5
+	bpl qq3
 	lda trackn_audc+1
 	and #$0f
-	beq qq5
+	beq qq3
 	lda trackn_audf+1
 	clc
 	adc trackn_filter+1
 	sta trackn_audf+3
+
+qq2a
 	txa
 	ora #2
 	tax
 	EIF
+qq3
 	EIF
-
+	
 qq5
+	IFT FEAT_FILTER
 	stx v_audctl
+	EIF
 	IFT TRACKS>4
-	IFT FEAT_AUDCTLMANUALSET
+	
+	IFT FEAT_AUDCTLMANUALSET||FEAT_GET_AUDCTL_EARLY
+	IFT FEAT_GET_AUDCTL_EARLY
+	ldx v_audctl2
+	ELS
 	lda trackn_audctl+4
 	ora trackn_audctl+5
 	ora trackn_audctl+6
 	ora trackn_audctl+7
 	tax
+	stx v_audctl2
+	EIF
 	ELS
 	ldx #0
-	EIF
-
-; Channel 1 Right
-filter_ch_1_stereo	
 	stx v_audctl2
+	EIF
+	
 	IFT FEAT_FILTER
 	IFT FEAT_FILTERG0R
 	lda trackn_command+0+4
-	bpl filter_ch_2_stereo
+	bpl qs2
 	lda trackn_audc+0+4
 	and #$0f
-	beq filter_ch_2_stereo
+	beq qs2
 	lda trackn_audf+0+4
 	clc
 	adc trackn_filter+0+4
 	sta trackn_audf+2+4
+
+qs1a
 	txa
 	ora #4
 	tax
 	EIF
-
-
-; Channel 2 Right
-filter_ch_2_stereo
+qs2
 	IFT FEAT_FILTERG1R
 	lda trackn_command+1+4
-	bpl qs5
+	bpl qs3
 	lda trackn_audc+1+4
 	and #$0f
-	beq qs5
+	beq qs3
 	lda trackn_audf+1+4
 	clc
 	adc trackn_filter+1+4
 	sta trackn_audf+3+4
+
+qs2a
 	txa
 	ora #2
 	tax
 	EIF
+qs3
 	EIF
-
+	
 qs5
+	IFT FEAT_FILTER
 	stx v_audctl2
 	EIF
-
+	EIF
 rmt_p5
 	IFT FEAT_INSTRSPEED==0||FEAT_INSTRSPEED>1
 	lda #$ff
-
 v_ainstrspeed equ *-1
 	ELS
 	lda #1
 	EIF
 	rts
+	
+	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK	; experimental feature, may or may not work at all!
+
+;* some bytes, arbitrarily distributed as flags:
+;*
+;* #$00 == nothing at all! free BEQ for skipping the code when it's encountered
+;* #$FF == something went wrong, abort whatever is done when encountered! eg: invalid 16-bit output
+;* #$01 == 15khz of course, anywhere
+;* #$80 == 16-bit, valid channels ONLY
+;* #$40 == 1.79mhz mode, valid channels ONLY
+;* #$7F == Sawtooth/Triangle, valid channel ONLY, will require also rely on few additional CMD tests
+;*
+	
+start_aggressive_init
+	IFT TRACKS>4			; stereo mode
+	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
+	bne do_aggressive_init		; AUDCTL is not 0, begin the aggressive init process immediately
+	sta trackn_flags+4		; AUDCTL is 0, make sure to store this value to clear the instrument flags
+	sta trackn_flags+5
+	sta trackn_flags+6
+	sta trackn_flags+7	
+start_aggressive_init_c
+	ldx #3				; since there are only 4 channels per POKEY, this step is necessary in stereo mode in case it was skipped
+	EIF
+
+start_aggressive_init_b
+	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
+	bne do_aggressive_init_b	; AUDCTL is not 0, begin the aggressive init process immediately
+	sta trackn_flags+0		; AUDCTL is 0, make sure to store this value to clear the instrument flags
+	sta trackn_flags+1
+	sta trackn_flags+2
+	sta trackn_flags+3	
+	IFT TRACKS>4			; stereo mode
+	beq done_aggressive_init	; make sure to always reload the number of TRACKS into index x as a failsafe
+	ELS
+	beq done_aggressive_init_a	; unconditional, AUDCTL is 0, no aggressive init needed at all, the loop finishes here
+	EIF
+	
+do_aggressive_init
+	IFT TRACKS>4			; stereo mode
+	cmp old_v_audctl2		; are the flags identical?
+	beq start_aggressive_init_c	; go fetch the proper number of channels and try the left POKEY AUDCTL, no further action required
+	bne do_aggressive_init_c	; not identical, process the aggressive code
+	EIF
+	
+do_aggressive_init_b
+	cmp old_v_audctl
+	IFT TRACKS>4			; stereo mode
+	beq done_aggressive_init	; make sure to always reload the number of TRACKS into index x as a failsafe
+	ELS
+	beq done_aggressive_init_a	; unconditional, AUDCTL is 0, no aggressive init needed at all, the loop finishes here
+	EIF	
+
+do_aggressive_init_c
+	tay				; temporary AUDCTL backup into index y
+	
+do_aggressive_init_a		
+
+do_ch4
+
+	IFT TRACKS>4
+	cpx #7				; since there are only 4 channels per POKEY, this step is necessary in stereo mode so all 8 channels can be tested
+	beq do_join_34			; if equal, process it
+	EIF
+
+	cpx #3
+	bne do_ch3
+do_join_34
+	bit JOIN_34
+	beq do_clock_15			; if no join, skip directly to 15khz checks
+	bit CH3_179
+	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
+do_join_34_a
+	lda #$80			; sets 16-bit mode in channel 3+4
+	bne loop_aggressive_init	; unconditional
+	
+do_ch3	
+
+	IFT TRACKS>4
+	cpx #6				; since there are only 4 channels per POKEY, this step is necessary in stereo mode so all 8 channels can be tested
+	beq do_179_ch3			; if equal, process it
+	EIF
+
+	cpx #2
+	bne do_ch2
+do_179_ch3
+	bit CH3_179
+	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
+	bit JOIN_34
+	beq do_179_ch3_a		; failsafe, 16-bit volume output should not happen in this channel
+	lda #$FF
+	bne loop_aggressive_init	; unconditional
+do_179_ch3_a
+	lda #$40 			; 1.79mhz mode in channel 3
+	bne loop_aggressive_init	; unconditional
+	
+do_ch2	
+
+	IFT TRACKS>4
+	cpx #5				; since there are only 4 channels per POKEY, this step is necessary in stereo mode so all 8 channels can be tested
+	beq do_join_12			; if equal, process it
+	EIF
+
+	cpx #1
+	bne do_ch1
+do_join_12
+	bit JOIN_12
+	beq do_clock_15			; if no join, skip directly to 15khz checks
+	bit CH1_179
+	beq do_clock_15			; no 1.79mhz mode in channel 1, skip ahead to 15khz mode check
+do_join_12_a
+	lda #$80			; sets 16-bit mode in channel 1+2
+	bne loop_aggressive_init	; unconditional
+	
+do_ch1					; x being equal to 0 or 4 should be unconditional here, no extra check necessary
+do_179_ch1				; that poor channel 1 has a ton of checks going, the 1.79mhz mode takes no shit
+	bit CH1_179
+	beq do_clock_15			; no 1.79mhz mode in channel 1, skip ahead, else, run the cycle of endless checks
+	bit JOIN_12
+	beq do_179_ch1_a
+	lda #$FF
+	bne loop_aggressive_init	; unconditional	
+do_179_ch1_a
+	bit CH3_179			
+	beq do_179_ch1_b		; if 1.79mhz mode is also active in channel 3, load the Triangle/Sawtooth value, and continue like normal
+	lda #$7F
+	bne loop_aggressive_init	; unconditional
+do_179_ch1_b
+	lda #$40 			; 1.79mhz mode in channel 3
+	bne loop_aggressive_init	; unconditional
+	
+do_clock_15
+	and #$01			; AND instruction here, if the 15khz mode is off, the result will always be 0, regardless of every other bits
+
+loop_aggressive_init
+	sta trackn_flags,x
+	dex
+	bmi done_aggressive_init	; index x has overflown, so the loop is finished
+	
+	IFT TRACKS>4
+	cpx #3				; since there are only 4 channels per POKEY, this step is necessary in stereo mode in case it was skipped
+	bne loop_aggressive_init_a
+	jmp start_aggressive_init_b	; if equal, process the remaining 4 channels, but first the proper AUDCTL value must be loaded
+	EIF
+
+loop_aggressive_init_a
+	tya				; fetch the AUDCTL backup before continuing into the loop
+	bne do_aggressive_init_a	; unconditional, AUDCTL is never going to be 0 here
+done_aggressive_init
+	ldx #TRACKS-1
+done_aggressive_init_a			; if the process was canceled at the earliest time, no need to load TRACKS into index x again
+	jmp pp1a
+	EIF
+
+do_sawtooth
+	IFT FEAT_FULL_SAWTOOTH
+	lda reg2
+	bpl hijack_sawtooth_done	; AUTOFILTER command is off, skip overwriting the other things	
+	IFT FEAT_FILTER
+	eor #$80			; inverts the AUTOFILTER bit, so it does not overwrite things later
+	sta reg2			; store back to reg2 for later
+	EIF
+	lda #4				; high pass filter, CH1+3
+	IFT TRACKS>4			; stereo mode
+	cpx #4				; are we in the right POKEY channels?
+	bcc sawtooth_audctl_mono	; if x is lower than 4, we are not
+	ora v_audctl2			; combine the existing AUDCTL value to it
+	sta v_audctl2			; store the new AUDCTL value, right POKEY
+	bne sawtooth_audctl_done	; unconditional
+	EIF
+sawtooth_audctl_mono	
+	ora v_audctl			; combine the existing AUDCTL value to it
+	sta v_audctl			; store the new AUDCTL value, left POKEY
+sawtooth_audctl_done
+	IFT FEAT_COMMAND6		; Sawtooth CMD6 hack... could be optimised much better, or maybe moved into the commands? 
+	lda reg2			; Command and Distortion
+	and #$70			; keep the Command bits only
+	cmp #$60			; CMD6?
+	bne hijack_sawtooth_done	; skip if not equal
+	lda reg3			; $XY parameter
+	beq hijack_sawtooth_done	; skip if the value is 0, nothing will be changed
+	bmi sawtooth_reverse		; negative values (#$80 to #$FF) will reverse the pointers, positive values (#$01 to #$7F) will set the pointers back to normal
+sawtooth_normal
+	lda #<frqtabsawtooth_ch1
+	sta saw_ch1
+	lda #<frqtabsawtooth_ch3
+	sta saw_ch3	
+	bpl hijack_sawtooth_done
+sawtooth_reverse
+	lda #<frqtabsawtooth_ch3
+	sta saw_ch1
+	lda #<frqtabsawtooth_ch1
+	sta saw_ch3	
+	EIF
+hijack_sawtooth_done
+	lda #<frqtabsawtooth_ch1
+saw_ch1	equ *-1	
+	sta nr 
+	lda #<frqtabsawtooth_ch3
+saw_ch3	equ *-1	
+	sta sawtoothtables
+hijack_sawtooth_done_a
+	lda #>PAGE_EXTRA_0		; tables MSB pointer, it's the same one regardless of the table used
+	sta sawtoothtables+1		; for the other channel later, also used as a check if it is enabled	
+	jmp store_tables_lsb_a		; finish in the middle of the 64khz/1.79mhz branch
+	EIF
+
+do_bass16	
+	IFT FEAT_BASS16		
+	IFT TRACKS>4			; stereo mode
+	cpx #4				; are we in the right POKEY channels?
+	bcc test_bass16_ch4_mono	; if x is lower than 4, we are not
+test_bass16_ch4_stereo
+	cpx #7				; channel 4?
+	bne test_bass16_ch2_stereo
+	lda #$28			; JOIN_34 + CH3_179 bits 
+	bne bass16_audctl_done_stereo	; unconditional
+test_bass16_ch2_stereo	
+	cpx #5				; channel 2?
+	bne no_bass16			; no valid channel detected
+	lda #$50			; JOIN_12 + CH1_179 bits 
+bass16_audctl_done_stereo
+	ora v_audctl2	
+	sta v_audctl2
+	bne process_bass16		; process the remaining BASS16 code from here
+	EIF
+test_bass16_ch4_mono	
+	cpx #3				; channel 4?
+	bne test_bass16_ch2_mono
+	lda #$28			; JOIN_34 + CH3_179 bits 
+	bne bass16_audctl_done_mono	; unconditional
+test_bass16_ch2_mono
+	cpx #1				; channel 2?
+	bne no_bass16			; no valid channel detected
+	lda #$50			; JOIN_12 + CH1_179 bits 
+bass16_audctl_done_mono	
+	ora v_audctl
+	sta v_audctl	
+process_bass16	
+	IFT FEAT_COMMAND6&&FEAT_FULL_16BIT
+	lda reg2			; Distortion and Commands
+	and #$70			; leave only the Commands bits
+	cmp #$60			; CMD6?
+	bne process_bass16_a		; skip if not CMD6
+	lda reg3			; XY parameter
+	beq process_bass16_a		; immediately skip if the value is 0, nothing will be changed
+	and #$0E			; strip away all unwanted bits, left nybble will not affect anything
+	sta bass16_pointer		; PERMANENTLY change the value until a new CMD6 value is read
+	EIF
+	IFT FEAT_FULL_16BIT	
+process_bass16_a
+	ldy #$0A			; Distortion A
+bass16_pointer equ *-1
+	lda #$80
+	jmp check_valid_16bit_b		; process the remaining of the 16-bit code from there
+no_bass16
+	jmp check_flags			; abort the BASS16 code immediately if the execution landed here
+	ELS	
+	lda #<frqtabpure_hi
+	sta nr
+	lda #<frqtabpure_lo
+	sta pointer16bitlo 	
+	lda #0				
+	sta trackn_audc-1,x		; update the next channel's AUDC early, it will always be volume 0, and Distortion won't matter
+	lda #>PAGE_DISTORTION_A
+	sta pointer16bitlo+1		; this value can also be used to identify if 16-bit mode is active or not, since it will never be 0
+	sta nr+1
+	lda tmp
+	ora #$A0
+	jmp store_tables_lsb_c
+	EIF
+	EIF
 
 SetPokey
-	IFT STEREOMODE==0		; L1 L2 L3 L4, MONO (Mode 0)
-	ldy v_audctl
+	IFT STEREOMODE==1		;* L1 L2 L3 L4 R1 R2 R3 R4
+	
+	ldy #$ff
+v_audctl2 equ *-1
+
+;	ldy v_audctl2
+	lda trackn_audf+0+4
+	ldx trackn_audf+0
+	
+	sta $d210
+	stx $d200
+	lda trackn_audc+0+4
+	ldx trackn_audc+0
+	
+	sta $d211
+	stx $d201
+	lda trackn_audf+1+4
+	ldx trackn_audf+1
+	
+	sta $d212
+	stx $d202
+	lda trackn_audc+1+4
+	ldx trackn_audc+1
+	
+	sta $d213
+	stx $d203
+	lda trackn_audf+2+4
+	ldx trackn_audf+2
+	
+	sta $d214
+	stx $d204
+	lda trackn_audc+2+4
+	ldx trackn_audc+2
+	
+	sta $d215
+	stx $d205
+	lda trackn_audf+3+4
+	ldx trackn_audf+3
+	
+	sta $d216
+	stx $d206
+	lda trackn_audc+3+4
+	ldx trackn_audc+3
+	
+	sta $d217
+	stx $d207
+	
+	lda #$ff
+v_audctl equ *-1
+
+;	lda v_audctl
+	
+	sty $d218
+	sta $d208
+	
+	IFT FEAT_TWO_TONE
+	
+	lda #$03
+v_skctl equ *-1	
+	ldy #$03
+v_skctl2 equ *-1
+
+;	lda v_skctl
+;	ldy v_skctl2
+
+	sta $d20f	
+	sty $d21f		
+	EIF
+	
+	ELI STEREOMODE==0		;* L1 L2 L3 L4
+	
+	ldy #$ff
+v_audctl equ *-1
+
+;	ldy v_audctl
+	
 	lda trackn_audf+0
 	ldx trackn_audc+0
 	sta $d200
 	stx $d201
 	lda trackn_audf+1
 	ldx trackn_audc+1
-	sta $d202
-	stx $d203
+	sta $d200+2
+	stx $d201+2
 	lda trackn_audf+2
 	ldx trackn_audc+2
-	sta $d204
-	stx $d205
+	sta $d200+4
+	stx $d201+4
 	lda trackn_audf+3
 	ldx trackn_audc+3
-	sta $d206
-	stx $d207
+	sta $d200+6
+	stx $d201+6
 	sty $d208
-	lda v_skctl
-	sta $d20f
-
-	ELI STEREOMODE==1		; L1 L2 L3 L4 R1 R2 R3 R4, STEREO (Mode 1)
-	ldy v_audctl2
-	lda trackn_audf+0+4
-	ldx trackn_audf+0
-	sta $d210
-	stx $d200
-	lda trackn_audc+0+4
-	ldx trackn_audc+0
-	sta $d211
-	stx $d201
-	lda trackn_audf+1+4
-	ldx trackn_audf+1
-	sta $d212
-	stx $d202
-	lda trackn_audc+1+4
-	ldx trackn_audc+1
-	sta $d213
-	stx $d203
-	lda trackn_audf+2+4
-	ldx trackn_audf+2
-	sta $d214
-	stx $d204
-	lda trackn_audc+2+4
-	ldx trackn_audc+2
-	sta $d215
-	stx $d205
-	lda trackn_audf+3+4
-	ldx trackn_audf+3
-	sta $d216
-	stx $d206
-	lda trackn_audc+3+4
-	ldx trackn_audc+3
-	sta $d217
-	stx $d207
-	lda v_audctl
-	sty $d218
-	sta $d208
-	lda v_skctl
-	sta $d20f
-	lda v_skctl2
-	sta $d21f
 	
-	ELI STEREOMODE==2		; L1 R2 R3 L4, STEREO (Mode 2)
+	IFT FEAT_TWO_TONE
+	
+	lda #$03
+v_skctl equ *-1	
+
+;	lda v_skctl
+
+	sta $d20f
+	EIF
+	
+	ELI STEREOMODE==2		;* L1 R2 R3 L4
+	
+;	ldy #$ff
+;v_audctl equ *-1
+
 	ldy v_audctl
+
 	lda trackn_audf+0
 	ldx trackn_audc+0
 	sta $d200
@@ -1451,12 +1979,25 @@ SetPokey
 	sta $d210+6
 	sty $d218
 	sty $d208
+	
+	IFT FEAT_TWO_TONE
+	
+;	ldy #$03
+;v_skctl equ *-1	
+
 	lda v_skctl
+	
 	sta $d20f
 	sta $d21f
+	EIF
 	
-	ELI STEREOMODE==3		; L1 L2 R3 R4, STEREO (Mode 3)
+	ELI STEREOMODE==3		;* L1 L2 R3 R4
+	
+;	ldy #$ff
+;v_audctl equ *-1
+
 	ldy v_audctl
+
 	lda trackn_audf+0
 	ldx trackn_audc+0
 	sta $d200
@@ -1477,88 +2018,29 @@ SetPokey
 	sta $d200+6
 	sty $d218
 	sty $d208
-	lda v_skctl
-	sta $d20f
-	sta $d21f
 	
-	ELI STEREOMODE==4		; LR1 LR2 LR3 LR4, MONO (Mode 4)
-	ldy v_audctl
-	ldx trackn_audf+0
-	stx $d200
-	stx $d210
-	ldx trackn_audc+0
-        stx $d201
-	stx $d211
-	ldx trackn_audf+1
-        stx $d202
-	stx $d212
-	ldx trackn_audc+1
-        stx $d203
-	stx $d213
-	ldx trackn_audf+2
-        stx $d204
-	stx $d214
-	ldx trackn_audc+2
-        stx $d205
-	stx $d215
-	ldx trackn_audf+3
-        stx $d206
-	stx $d216
-	ldx trackn_audc+3
-        stx $d207
-	stx $d217
-        sty $d208
-	sty $d218
+	IFT FEAT_TWO_TONE
+	
+;	ldy #$03
+;v_skctl equ *-1	
+
 	lda v_skctl
+
 	sta $d20f
 	sta $d21f
 	EIF
-	rts                     ; IMPORTANT TO NOT ACCIDENTALLY DELETE!
-
-; Player ends here, what lies after is anything you want, and the extra workaround code if assembled as a 'tracker.obx' binary
-; The workaround code is mandatory in order to avoid many things breaking in RMT!
-	icl "rmtdata.a65"
-
-RMTPLAYEREND
-        IFT FEAT_IS_TRACKER
-        org $3D00
-InstrumentY2                    ; seems like they go hand in hand?
-        sta trackn_note,x
-        tya 
-        asl @ 
-        sta trackn_instrx2,x
-        bmi SkipInstrumentY2
-        tay 
-        jmp SetUpInstrumentY2
-SkipInstrumentY2       
-        rts 
-
-        org $3E00
-SetInstrumentVolume             ; seems logical?
-        :4 asl @ 
-        sta trackn_volume,x
-        rts 
-
-        org $3E80
-StopInstrument                  ; I think?
-        lda #$00 
-        sta trackn_volume,x
-        sta trackn_instrhb,x
-        sta trackn_instrdb,x
-        sta trackn_audc,x
-        rts 
-
-	org $3F00 ; RMT8 HEADER and some other placeholder stuff?
-ExtraRMTStuff
-	dta $52,$4D,$54,$38,$40,$40,$01,$00,$10,$3F,$00,$00,$00,$00,$90,$3F
-	dta $00,$40,$00,$41,$00,$42,$00,$43,$00,$44,$00,$45,$00,$46,$00,$47
-	dta $00,$48,$00,$49,$00,$4A,$00,$4B,$00,$4C,$00,$4D,$00,$4E,$00,$4F
-	dta $00,$50,$00,$51,$00,$52,$00,$53,$00,$54,$00,$55,$00,$56,$00,$57
-	dta $00,$58,$00,$59,$00,$5A,$00,$5B,$00,$5C,$00,$5D,$00,$5E,$00,$5F
-	dta $00,$60,$00,$61,$00,$62,$00,$63,$00,$64,$00,$65,$00,$66,$00,$67
-	dta $00,$68,$00,$69,$00,$6A,$00,$6B,$00,$6C,$00,$6D,$00,$6E,$00,$6F
-	dta $00,$70,$00,$71,$00,$72,$00,$73,$00,$74,$00,$75,$00,$76,$00,$77
-	dta $00,$78,$00,$79,$00,$7A,$00,$7B,$00,$7C,$00,$7D,$00,$7E,$00,$7F
-	dta $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FE,$00,$90,$3F
 	EIF
+	rts
+RMTPLAYEREND
+
+; Player ends here, what lies after is anything you want, and the extra workaround code if assembled as a 'tracker.obx' binary	
+
+; Let's not forget the tables and other RMT data! 
+	icl "rmtdata.a65"
+	
+; The workaround code is mandatory in order to avoid many things breaking in RMT!
+	IFT FEAT_IS_TRACKER
+	icl "rmtextra.a65" 
+	EIF
+
 

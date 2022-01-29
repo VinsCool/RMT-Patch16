@@ -17,7 +17,7 @@ STARTLINE	equ 0
 
 ; Stereo mode, copied over from 'rmtplayr.a65' for easier access during edit
 
-STEREOMODE	equ 1		; 0 => compile RMTplayer for 4 tracks Mono
+STEREOMODE	equ 0		; 0 => compile RMTplayer for 4 tracks Mono
 				; 1 => compile RMTplayer for 8 tracks Stereo 
 				; 2 => compile RMTplayer for 4 tracks Stereo 
 				; 3 => compile RMTplayer for 4 tracks Stereo 
@@ -111,7 +111,7 @@ start
 	ldx #$F			; white colour value
 	stx COLOR1		; Shadow COLPF1 (Playfield colour 1), font colour
 	mwa #dlist SDLSTL	; Start Address of the Display List
-module_init
+module_init	
 	ldx #<MODUL		; low byte of RMT module to X reg
 	ldy #>MODUL		; hi byte of RMT module to Y reg
 	lda #STARTLINE		; starting song line 0-255 to A reg
@@ -235,6 +235,14 @@ line_2	dta d"Line 2                                  "
 line_3	dta d"Line 3                                  "
 line_4	dta d"Line 4 (hold SHIFT to toggle)           "
 line_5	dta d"Line 5 (SHIFT is being held right now)  "
+
+
+;line_1	dta d"Another Dumb Experiment                 "
+;line_2	dta d"Patch16-2 Test Binary                   "
+;line_3	dta d"Composed by VinsCool, Mostly Improvised "
+;line_4	dta d"2022                                    "
+;line_5	dta d"Do Androids Dream of Electric Sheep?    "
+
 
 ; Display list
 

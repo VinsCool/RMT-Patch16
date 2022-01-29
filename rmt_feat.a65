@@ -1,13 +1,71 @@
 ;*
 ;* RMT FEATures definitions
 ;*
-;* For optimizations of RMT player routine to concrete RMT modul only!
+;* For optimizations of RMT player routine to concrete RMT module only!
+
+;* ------------------------------------------------------------------------------------------------------------
+
+;* THIS IS FOR TESTING PURPOSES, TEMPORARY WAY TO COMMENT CODE OUT
+DONTUSEME		equ 1	
+
+;* ------------------------------------------------------------------------------------------------------------
+
 ;* --------BEGIN--------
-FEAT_SFX			equ 0			;* 0 => No SFX support, 1 => SFX support
-FEAT_GLOBALVOLUMEFADE		equ 0			;* 0 => No RMTGLOBALVOLUMEFADE support, 1=> RMTGLOBALVOLUMEFADE support (+7 bytes)
-FEAT_NOSTARTINGSONGLINE		equ 0			;* 0 => Init with starting songline, 1=> no starting songline (start from songline 0 always), cca 22 or 24 bytes
+
+FEAT_SFX		equ 0			;* 0 => No SFX support, 1 => SFX support
+FEAT_GLOBALVOLUMEFADE	equ 0			;* 0 => No RMTGLOBALVOLUMEFADE support, 1=> RMTGLOBALVOLUMEFADE support (+7 bytes)
+FEAT_NOSTARTINGSONGLINE	equ 0			;* 0 => Init with starting songline, 1=> no starting songline (start from songline 0 always), cca 22 or 24 bytes
 FEAT_INSTRSPEED		equ 0			;* cca 21 or 5 bytes
 FEAT_CONSTANTSPEED	equ 0			;* cca 28 bytes
+
+;* ------------------------------------------------------------------------------------------------------------
+
+;* PATCH16-2 ADDITIONS BY VINSCOOL, USE ONLY IF YOU KNOW WHAT YOU ARE DOING!
+
+STEREOMODE		equ 1			;0 => compile RMTplayer for 4 tracks mono
+;*						;1 => compile RMTplayer for 8 tracks stereo
+;*						;2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
+;*						;3 => compile RMTplayer for 4 tracks stereo L1 L2 R3 R4
+;*
+;* Stereo mode can be commented out if it is defined from a different location (eg: game/demo code, dasmplayer.asm, etc)
+;* STEREO MODE MUST ALWAYS BE 1 IF THE OUTPUT IS INTENDED FOR USE AS RMT DRIVER BINARY, ELSE IT WILL BE BROKEN!
+
+;* Many things seem to be hardcoded to Raster Music Tracker... enable ONLY if the target output is the actual RMT driver binary (tracker.obx)!
+FEAT_IS_TRACKER 	equ 1
+
+;* There are many things tightly related to RMT Visualizer exclusively, they can be skipped otherwise.
+FEAT_IS_VISUALP 	equ 0
+
+;* Simple RMT Player is a simple recreation of the original .xex export player from RMT, with some changes, skip if not needed.
+FEAT_IS_SIMPLEP 	equ 0
+
+;* THE main point of interest for the Patch16 driver hack. Allows most of the tables and combinations being loaded through tons of parameters, mainly AUDCTL.
+;* if the full set of tables are not needed, this will save a ton of memory and cycles while turned off.
+FEAT_FULL_TABLES_HIJACK equ 1
+
+;* Two-Tone Filter toggle code, not much but it can modulate into really awesome sounds
+FEAT_TWO_TONE		equ 1
+
+;* Get the POKEY AUDCTL(s) as early as possible, this is experimental code, keep enabled if you are unsure since many new things depend on this!
+FEAT_GET_AUDCTL_EARLY	equ 1
+
+;* New 16-bit code, for full 16-bit support
+FEAT_FULL_16BIT		equ 1
+
+;* Alternative 16-bit method, which simplifies the old BASS16 approach, allowing Distortion 6 to be used very easily with the new 16-bit code, even without all the other 16-bit tables!
+FEAT_BASS16		equ 1
+
+;* New Sawtooth code, output the Sawtooth waveform, or Triangle
+FEAT_FULL_SAWTOOTH	equ 1
+
+;* New experimental approach, even more aggressive than FEAT_GET_AUDCTL_EARLY and FEAT_FULL_TABLES_HIJACK combined!
+FEAT_AGGRESSIVE_INIT	equ 1
+
+;* Manual tuning table loaded from instruments, this is experimental code, do not use unless you have a reason to try it out!
+FEAT_TABLE_MANUAL	equ 0
+
+;* ------------------------------------------------------------------------------------------------------------
+
 ;* VARIOUS COMMANDS
 FEAT_COMMAND1		equ 1			;* cca 8 bytes
 FEAT_COMMAND2		equ 1			;* cca 20 bytes (+save 1 address in zero page) and quicker whole RMT routine
@@ -15,43 +73,45 @@ FEAT_COMMAND3		equ 1			;* cca 12 bytes
 FEAT_COMMAND4		equ 1			;* cca 15 bytes
 FEAT_COMMAND5		equ 1			;* cca 67 bytes
 FEAT_COMMAND6		equ 1			;* cca 15 bytes
-;* COMMAND7 SETNOTE (i.e. command 7 with parameter != $80)
-FEAT_COMMAND7SETNOTE		equ 1		;* cca 12 bytes
-;* COMMAND7 VOLUMEONLY (i.e. command 7 with parameter == $80)
-FEAT_COMMAND7VOLUMEONLY		equ 1		;* cca 74 bytes
+
+;* COMMAND7 alone sets the AUDCTL envelope, can be used alone to set the AUDCTL envelope, no TWOTONE or VOLUMEONLY required!
+FEAT_COMMAND7		equ 1			;* patch16-2 addition by Vin, valid values are from $00 to $FC included
+
+;* COMMAND7 TWOTONE (i.e. command 7 with parameter == $FE to toggle it on, and $FD to toggle it off)
+FEAT_COMMAND7SETNOTE	equ 1			;* patch16-2 change by Vin, must be paired with FEAT_TWO_TONE to work
+
+;* COMMAND7 VOLUMEONLY (i.e. command 7 with parameter == $FF)
+FEAT_COMMAND7VOLUMEONLY	equ 1			;* patch16-2 change by Vin, unsure how many bytes are involved
+
 ;* PORTAMENTO
 FEAT_PORTAMENTO		equ 1			;* cca 138 bytes and quicker whole RMT routine
+
 ;* FILTER
-FEAT_FILTER			equ 1			;* cca 179 bytes and quicker whole RMT routine
-FEAT_FILTERG0L		equ	1			;* (cca 38 bytes for each)
-FEAT_FILTERG1L		equ	1
-FEAT_FILTERG0R		equ	1
-FEAT_FILTERG1R		equ	1
-;* BASS16B (i.e. distortion value 6)
-FEAT_BASS16			equ 1			;* cca 194 bytes +128bytes freq table and quicker whole RMT routine
-FEAT_BASS16G1L		equ 1			;* (cca 47 bytes for each)
-FEAT_BASS16G3L		equ 1
-FEAT_BASS16G1R		equ 1
-FEAT_BASS16G3R		equ 1
-;* VOLUME ONLY for particular generators
-FEAT_VOLUMEONLYG0L	equ 1			;* (cca 7 bytes for each)
-FEAT_VOLUMEONLYG2L	equ 1
-FEAT_VOLUMEONLYG3L	equ 1
-FEAT_VOLUMEONLYG0R	equ 1
-FEAT_VOLUMEONLYG2R	equ 1
-FEAT_VOLUMEONLYG3R	equ 1
+FEAT_FILTER		equ 1			;* cca 179 bytes and quicker whole RMT routine
+FEAT_FILTERG0L		equ 1			;* (cca 38 bytes for each)
+FEAT_FILTERG1L		equ 1
+FEAT_FILTERG0R		equ 1
+FEAT_FILTERG1R		equ 1
+
 ;* TABLE TYPE (i.e. TABLETYPE=1)
 FEAT_TABLETYPE		equ 1			;* cca 53 bytes and quicker whole RMT routine
+
 ;* TABLE MODE (i.e. TABLEMODE=1)
 FEAT_TABLEMODE		equ 1			;* cca 16 bytes and quicker whole RMT routine
+
 ;* TABLE GO (i.e. TGO is nonzero value)
 FEAT_TABLEGO		equ 1			;* cca 6 bytes and quicker whole RMT routine
+
 ;* AUDCTLMANUALSET (i.e. any MANUAL AUDCTL setting is nonzero value)
-FEAT_AUDCTLMANUALSET	equ 1		;* cca 27 bytes and quicker whole RMT routine
+FEAT_AUDCTLMANUALSET	equ 1			;* cca 27 bytes and quicker whole RMT routine
+
 ;* VOLUME MINIMUM (i.e. VMIN is nonzero value)
 FEAT_VOLUMEMIN		equ 1			;* cca 12 bytes and quicker whole RMT routine
+
 ;* INSTREUMENT EFFECTS (i.e. VIBRATO or FSHIFT are nonzero values with nonzero DELAY)
 FEAT_EFFECTVIBRATO	equ 1			;* cca 65 bytes and quicker whole RMT routine
 FEAT_EFFECTFSHIFT	equ 1			;* cca 11 bytes and quicker whole RMT routine
 ;* (btw - if no one from this two effect is used, it will save cca 102 bytes)
+
 ;* --------END--------
+
