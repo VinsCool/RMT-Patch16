@@ -26,6 +26,13 @@ StopInstrument                  ; I think?
         sta trackn_instrdb,x
         sta trackn_audc,x
         rts 
+        dta $00			; allign memory
+        
+DriverVersion
+	dta c"Patch 16-3.1 by VinsCool"
+	dta $00			; allign memory, and text terminator
+	dta c"Hello Bitches... :3 Please don't mind me I am testing bytes overflow... is it dead?"
+	dta $00			; allign memory, and easter egg... hehehehe ;)
 
 	org $3F00 ; RMT8 HEADER and some other placeholder stuff?
 ExtraRMTStuff
