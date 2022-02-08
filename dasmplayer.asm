@@ -25,7 +25,7 @@ STEREOMODE	equ 0		; 0 => compile RMTplayer for 4 tracks Mono
 
 ; playback speed will be adjusted accordingly in the other region
 
-REGIONPLAYBACK	equ 1		; 0 => PAL
+REGIONPLAYBACK	equ 0		; 0 => PAL
 				; 1 => NTSC
 
 ; screen line for synchronization, important to set with a good value to get smooth execution
@@ -159,6 +159,10 @@ region_done
 	mwa VVBLKI oldvbi       ; vbi address backup
 	mwa #vbi VVBLKI		; write our own vbi address to it	
 	mva #$40 NMIEN		; enable vbi interrupts
+wait_sync
+	lda VCOUNT		; current scanline, manipulated this way stabilises the timing
+	cmp #2			; is it 2?
+	bne wait_sync		; nope, repeat
 
 ; main loop, code runs from here after initialisation
 
@@ -222,7 +226,7 @@ stopmusic
 	stx SDMCTL		; write to Direct Memory Access (DMA) Control register
 	dex			; underflow to #$FF
 	stx CH			; write to the CH register, #$FF means no key pressed
-	jsr wait_vblank		; wait for vblank before continuing
+;	jsr wait_vblank		; wait for vblank before continuing
 	jmp (DOSVEC)		; return to DOS, or Self Test by default
 continue
 	pla			; since we're in our own vbi routine, pulling all values manually is required
