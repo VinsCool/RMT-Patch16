@@ -87,7 +87,7 @@ check_region
 	cpy #$9B		; compare index y to 155
 	IFT REGIONPLAYBACK==0	; if the player region defined for PAL...
 	bpl region_done		; negative result means the machine runs at 60hz
-	ldx #130		; NTSC is detected, adjust the speed from PAL to NTSC
+	ldx #131		; NTSC is detected, adjust the speed from PAL to NTSC (for some reason #130 skips a bit)
 	ELI REGIONPLAYBACK==1	; else, if the player region defined for NTSC...
 	bmi region_done		; positive result means the machine runs at 50hz
 	ldx #187		; PAL is detected, adjust the speed from NTSC to PAL
