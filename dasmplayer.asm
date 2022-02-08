@@ -3,7 +3,7 @@
 ;* Recreation from disassembled code            *;
 ;* Original version by Raster/C.P.U., 2003-2004 *;
 ;* Recreation by VinsCool                       *;
-;* Version 2, 28-10-2021                        *;
+;* Version 3, 07-02-2022                        *;
 ;************************************************;
 
 ; chose between the Atari Executable (.obx) or SAP format, must be either one (not both or none!)
@@ -25,7 +25,7 @@ STEREOMODE	equ 0		; 0 => compile RMTplayer for 4 tracks Mono
 
 ; playback speed will be adjusted accordingly in the other region
 
-REGIONPLAYBACK	equ 0		; 0 => PAL
+REGIONPLAYBACK	equ 1		; 0 => PAL
 				; 1 => NTSC
 
 ; screen line for synchronization, important to set with a good value to get smooth execution
@@ -74,14 +74,25 @@ NMIEN	equ $D40E
 	tax			; somehow the subtune is loaded in the accumulator at init
 	lda subtune,x		; load a subtune based on the song line, indexed by x
 	pha
+region_init			; 50 Hz or 60 Hz?
+	lda #0
+	sta vcount		; reset the counter
 	ldx #156		; default value for all regions
-	lda PAL			; load the PAL register
-	and #$E			; PAL or NTSC? NTSC = #$E
+region_loop	
+	lda vcount
+	beq check_region	; vcount = 0, go to check_region and compare values
+	tay			; backup the value in index y
+	bne region_loop 	; repeat
+check_region
+	cpy #$9B		; compare index y to 155
 	IFT REGIONPLAYBACK==0	; if the player region defined for PAL...
-	seq:ldx #131		; ...and NTSC is detected, adjust the speed from PAL to NTSC (I wonder why 130 is skippy...)
+	bpl region_done		; negative result means the machine runs at 60hz
+	ldx #130		; NTSC is detected, adjust the speed from PAL to NTSC
 	ELI REGIONPLAYBACK==1	; else, if the player region defined for NTSC...
-	sne:ldx #187		; ...and PAL is detected, adjust the speed from NTSC to PAL
+	bmi region_done		; positive result means the machine runs at 50hz
+	ldx #187		; PAL is detected, adjust the speed from NTSC to PAL
 	EIF			; endif
+region_done
 	stx $0490		; memory location used for screen synchronisation(?) in Altirra
 	ldx #<MODUL		; low byte of RMT module to X reg
 	ldy #>MODUL		; hi byte of RMT module to Y reg
@@ -94,13 +105,12 @@ NMIEN	equ $D40E
 tabpp       
 	dta 156,78,52,39	
 subtune
-	;dta $00,$0A,$20		; subtune line, can be as many as wanted, however, the SAP specs limit at 32
+;	dta $00,$0A,$20		; subtune line, can be as many as wanted, however, the SAP specs limit at 32
 	EIF
 
 ; begin Simple RMT Player
 
 	IFT EXPORTOBX
-
 	org $3E00
 start       
 	ldx #0			; disable playfield and the black colour value
@@ -126,23 +136,29 @@ wait_init
 	jsr wait_vblank		; wait for vblank => 1 frame
 	dex			; decrement index x
 	bne wait_init		; repeat until x = 0, total wait time is ~2 seconds
+region_init			; 50 Hz or 60 Hz?
+	stx vcount		; x = 0, use it here
 	ldx #156		; default value for all regions
-	lda PAL			; load the PAL register
-	and #$E			; PAL or NTSC? NTSC = #$E
+region_loop	
+	lda vcount
+	beq check_region	; vcount = 0, go to check_region and compare values
+	tay			; backup the value in index y
+	bne region_loop 	; repeat
+check_region
+	cpy #$9B		; compare index y to 155
 	IFT REGIONPLAYBACK==0	; if the player region defined for PAL...
-	seq:ldx #130		; ...and NTSC is detected, adjust the speed from PAL to NTSC
+	bpl region_done		; negative result means the machine runs at 60hz
+	ldx #130		; NTSC is detected, adjust the speed from PAL to NTSC
 	ELI REGIONPLAYBACK==1	; else, if the player region defined for NTSC...
-	sne:ldx #187		; ...and PAL is detected, adjust the speed from NTSC to PAL
+	bmi region_done		; positive result means the machine runs at 50hz
+	ldx #187		; PAL is detected, adjust the speed from NTSC to PAL
 	EIF			; endif
+region_done
 	stx ppap		; value used for screen synchronisation
 	sei			; Set Interrupt Disable Status
 	mwa VVBLKI oldvbi       ; vbi address backup
-	mwa #vbi VVBLKI		; write our own vbi address to it
+	mwa #vbi VVBLKI		; write our own vbi address to it	
 	mva #$40 NMIEN		; enable vbi interrupts
-wait_sync
-	lda VCOUNT		; current scanline, manipulated this way stabilises the timing
-	cmp #2			; is it 2?
-	bne wait_sync		; nope, repeat
 
 ; main loop, code runs from here after initialisation
 
@@ -273,8 +289,4 @@ oldvbi
 	ins "music.rmt"		; include music RMT module
 
 ; and that's all :D
-
-; some unrelated observation:
-; PAL playback in NTSC will be very constant with these scanlines every frame,in this order: 6,58,110,162,214
-; this makes a full 5 frames last exactly 6 frames without any noticeable stutter.
 
