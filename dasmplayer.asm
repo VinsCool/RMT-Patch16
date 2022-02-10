@@ -25,7 +25,7 @@ STEREOMODE	equ 0		; 0 => compile RMTplayer for 4 tracks Mono
 
 ; playback speed will be adjusted accordingly in the other region
 
-REGIONPLAYBACK	equ 0		; 0 => PAL
+REGIONPLAYBACK	equ 1		; 0 => PAL
 				; 1 => NTSC
 
 ; screen line for synchronization, important to set with a good value to get smooth execution
@@ -111,7 +111,7 @@ subtune
 ; begin Simple RMT Player
 
 	IFT EXPORTOBX
-	org $3E00
+	org $3D00		; may become $3D00 instead of $3E00 due to the extra VBI checks going
 start       
 	ldx #0			; disable playfield and the black colour value
 	stx SDMCTL		; write to Shadow Direct Memory Access Control address
@@ -127,6 +127,46 @@ module_init
 	lda #STARTLINE		; starting song line 0-255 to A reg
 	jsr rmt_init		; Init returns instrument speed (1..4 => from 1/screen to 4/screen)
 	tay			; use the instrument speed as an offset
+;	ldy #4			; test, forcing a value directly
+;	sty v_instrspeed	; test, manually setting this value from here also requires this one to fix the playback speed
+adjust_check
+	cpy #5
+	beq adjust_5vbi
+	cpy #7
+	beq adjust_7vbi
+	cpy #8
+	beq adjust_8vbi
+	cpy #9
+	beq adjust_9vbi
+	cpy #10
+	beq adjust_10vbi	
+	cpy #11
+	beq adjust_7vbi
+	cpy #14
+	beq adjust_7vbi
+	cpy #15
+	beq adjust_10vbi
+	cpy #16
+	beq adjust_9vbi
+no_adjust
+	bne do_speed_init_a
+adjust_5vbi
+	lda #155		; fixes 5xVBI
+	bne do_speed_init
+adjust_7vbi
+	lda #154		; fixes 7xVBI, 11xVBI, 14xVBI
+	bne do_speed_init
+adjust_9vbi
+	lda #153		; fixes 9xVBI, 16xVBI
+	bne do_speed_init
+adjust_8vbi
+	lda #152		; fixes 8xVBI
+	bne do_speed_init
+adjust_10vbi
+	lda #150		; fixes 10xVBI, 15xVBI
+do_speed_init
+	sta onefiftysix
+do_speed_init_a
 	lda tabpp-1,y		; load from the line counter spacing table
 	sta acpapx2		; lines between each play
 	ldx #$22		; DMA enable, normal playfield
@@ -139,6 +179,7 @@ wait_init
 region_init			; 50 Hz or 60 Hz?
 	stx vcount		; x = 0, use it here
 	ldx #156		; default value for all regions
+onefiftysix equ *-1		; adjustments
 region_loop	
 	lda vcount
 	beq check_region	; vcount = 0, go to check_region and compare values
@@ -199,16 +240,20 @@ play_loop
 	sty COLBK		; background colour
 	sty COLPF2		; playfield colour 2
 	jsr rmt_play		; setpokey + 1 play
+;	inc loop+1		; cheap gradient effect
 	ldy #$00		; black colour value
 	sty WSYNC		; horizontal sync
 	sty COLBK		; background colour
 	sty COLPF2		; playfield colour 2	
+	
 	beq loop                ; unconditional
 
 ; VBI loop
 
 vbi
 	sta WSYNC		; horizontal sync, so we're always on the exact same spot
+;	lda #RASTERBAR
+;	sta loop+1		; reset the rasterbar colour every VBI
 	ldx <line_4		; line 4 of text
 	lda SKSTAT		; Serial Port Status
 	and #$08		; SHIFT key being held?
@@ -226,7 +271,7 @@ stopmusic
 	stx SDMCTL		; write to Direct Memory Access (DMA) Control register
 	dex			; underflow to #$FF
 	stx CH			; write to the CH register, #$FF means no key pressed
-;	jsr wait_vblank		; wait for vblank before continuing
+	jsr wait_vblank		; wait for vblank before continuing
 	jmp (DOSVEC)		; return to DOS, or Self Test by default
 continue
 	pla			; since we're in our own vbi routine, pulling all values manually is required
@@ -250,11 +295,11 @@ wait
 
 	org $3F00
 
-line_1	dta d"Line 1                                  "
-line_2	dta d"Line 2                                  "
-line_3	dta d"Line 3                                  "
-line_4	dta d"Line 4 (hold SHIFT to toggle)           "
-line_5	dta d"Line 5 (SHIFT is being held right now)  "
+;line_1	dta d"Line 1                                  "
+;line_2	dta d"Line 2                                  "
+;line_3	dta d"Line 3                                  "
+;line_4	dta d"Line 4 (hold SHIFT to toggle)           "
+;line_5	dta d"Line 5 (SHIFT is being held right now)  "
 
 
 ;line_1	dta d"Another Dumb Experiment                 "
@@ -263,6 +308,12 @@ line_5	dta d"Line 5 (SHIFT is being held right now)  "
 ;line_4	dta d"2022                                    "
 ;line_5	dta d"Do Androids Dream of Electric Sheep?    "
 
+
+line_1	dta d"                                        "
+line_2	dta d"?xVBI                                   "
+line_3	dta d"RMT P16-3 Test Binary                   "
+line_4	dta d"                                        "
+line_5	dta d"Drugs are bad, mmm'kay?! Don't do drugs!"
 
 ; Display list
 
@@ -277,7 +328,7 @@ txt_toggle
 ; line counter spacing table for instrument speed from 1 to 4
 
 tabpp       
-	dta 156,78,52,39
+	dta 156,78,52,39,31,26,22,19,17,15,14,13,12,11,10,9	; 1xVBI to 16xVBI, some values need manual adjustments
 
 oldvbi	
 	dta a(0)		; vbi address backup
