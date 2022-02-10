@@ -323,6 +323,10 @@ ri1
 	EIF
 	jsr GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of rmt_silence code...
+	
 rmt_silence
 	IFT STEREOMODE>0
 	lda #0
@@ -331,7 +335,7 @@ rmt_silence
 	ldy #3
 	sty $d20f
 	sty $d21f
-	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER
+	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER	;* potential improvement: setting this elsewhere so the first frame of play would not be overwritten if defined early
 	sty v_skctl
 	sty v_skctl2
 	EIF
@@ -346,7 +350,7 @@ si1
 	sta $d208
 	ldy #3
 	sty $d20f
-	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER
+	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER	;* potential improvement: setting this elsewhere so the first frame of play would not be overwritten if defined early
 	sty v_skctl 
 	EIF
 	ldy #8
@@ -372,6 +376,13 @@ si1
 	lda #FEAT_INSTRSPEED
 	EIF
 	rts
+	
+;* end of rmt_silence code...
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of mainloop code here...
+	
 GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 GetSongLine
 	ldx #0
@@ -755,11 +766,7 @@ dexdone
 	ora trackn_audctl+2
 	ora trackn_audctl+3
 	sta v_audctl	
-	IFT TRACKS>4
-	
-;	lda v_audctl2
-;	sta old_v_audctl2
-	
+	IFT TRACKS>4	
 	lda trackn_audctl+4
 	ora trackn_audctl+5
 	ora trackn_audctl+6
@@ -849,7 +856,7 @@ pp2s
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
-;* start of the new tuning tables code... Should be much faster and efficient this time...
+;* start of the tuning tables code... Should be much faster and efficient this time...
 
 do_tuning_tables
 	lda reg2		; Distortion and Command
@@ -920,7 +927,7 @@ store_tables_lsb_b
 store_tables_lsb_c
 	sta trackn_audc,x	; update the channel's AUDC for the next SetPokey subroutine call
 	
-;* tables pointers hijacking done, finish up with the instruments effects below...
+;* end of tuning tables code...
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
@@ -1384,6 +1391,10 @@ cmd0b3
 cmd0c
 	sta trackn_audf,x
 	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of Portamento code... This is currently not properly compatible with 16-bit mode, unfortunately.
+	
 pp9
 	IFT FEAT_PORTAMENTO
 	lda trackn_portaspeeda,x
@@ -1417,11 +1428,16 @@ pp10
 	lda trackn_portafrqa,x
 	clc
 	adc trackn_shiftfrq,x	
-	
 pp10a	
 	sta trackn_audf,x
 pp11
 	EIF
+
+;* end of Portamento code...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* part of mainloop code...
 
 	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
@@ -1447,6 +1463,14 @@ ppnext
 	bmi rmt_p4
 	jmp pp1
 rmt_p4
+
+;* end of mainloop code... everything below will be conditionally assembled for easy optimisation.
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of Autofilter code...
+
+	IFT FEAT_FILTER
 	IFT FEAT_AUDCTLMANUALSET||FEAT_GET_AUDCTL_EARLY
 	IFT FEAT_GET_AUDCTL_EARLY
 	ldx v_audctl
@@ -1565,6 +1589,14 @@ qs5
 	stx v_audctl2
 	EIF
 	EIF
+	EIF
+	
+;* end of Autofilter code...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;	
+	
+;* return of instrument speed code here... I wonder if there may be a way to exploit this?
+	
 rmt_p5
 	IFT FEAT_INSTRSPEED==0||FEAT_INSTRSPEED>1
 	lda #$ff
@@ -1573,159 +1605,10 @@ v_ainstrspeed equ *-1
 	lda #1
 	EIF
 	rts
-	
-	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK	; experimental feature, may or may not work at all!
 
-;* some bytes, arbitrarily distributed as flags:
-;*
-;* #$00 == nothing at all! free BEQ for skipping the code when it's encountered
-;* #$FF == something went wrong, abort whatever is done when encountered! eg: invalid 16-bit output
-;* #$01 == 15khz of course, anywhere
-;* #$80 == 16-bit, valid channels ONLY
-;* #$40 == 1.79mhz mode, valid channels ONLY
-;* #$7F == Sawtooth/Triangle, valid channel ONLY, will require also rely on few additional CMD tests
-;*
-	
-start_aggressive_init
-	IFT TRACKS>4			; stereo mode
-	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
-	bne do_aggressive_init		; AUDCTL is not 0, begin the aggressive init process immediately
-	sta trackn_flags+4		; AUDCTL is 0, make sure to store this value to clear the instrument flags
-	sta trackn_flags+5
-	sta trackn_flags+6
-	sta trackn_flags+7	
-start_aggressive_init_c
-	ldx #3				; since there are only 4 channels per POKEY, this step is necessary in stereo mode in case it was skipped
-	EIF
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 
-start_aggressive_init_b
-	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
-	bne do_aggressive_init_b	; AUDCTL is not 0, begin the aggressive init process immediately
-	sta trackn_flags+0		; AUDCTL is 0, make sure to store this value to clear the instrument flags
-	sta trackn_flags+1
-	sta trackn_flags+2
-	sta trackn_flags+3	
-	IFT TRACKS>4			; stereo mode
-	beq done_aggressive_init	; make sure to always reload the number of TRACKS into index x as a failsafe
-	ELS
-	beq done_aggressive_init_a	; unconditional, AUDCTL is 0, no aggressive init needed at all, the loop finishes here
-	EIF
-	
-do_aggressive_init
-	IFT TRACKS>4			; stereo mode
-	cmp old_v_audctl2		; are the flags identical?
-	beq start_aggressive_init_c	; go fetch the proper number of channels and try the left POKEY AUDCTL, no further action required
-	bne do_aggressive_init_c	; not identical, process the aggressive code
-	EIF
-	
-do_aggressive_init_b
-	cmp old_v_audctl
-	IFT TRACKS>4			; stereo mode
-	beq done_aggressive_init	; make sure to always reload the number of TRACKS into index x as a failsafe
-	ELS
-	beq done_aggressive_init_a	; unconditional, AUDCTL is 0, no aggressive init needed at all, the loop finishes here
-	EIF	
-
-do_aggressive_init_c
-	tay				; temporary AUDCTL backup into index y
-	
-do_aggressive_init_a		
-
-do_ch4
-
-	IFT TRACKS>4
-	cpx #7				; since there are only 4 channels per POKEY, this step is necessary in stereo mode so all 8 channels can be tested
-	beq do_join_34			; if equal, process it
-	EIF
-
-	cpx #3
-	bne do_ch3
-do_join_34
-	bit JOIN_34
-	beq do_clock_15			; if no join, skip directly to 15khz checks
-	bit CH3_179
-	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
-do_join_34_a
-	lda #$80			; sets 16-bit mode in channel 3+4
-	bne loop_aggressive_init	; unconditional
-	
-do_ch3	
-
-	IFT TRACKS>4
-	cpx #6				; since there are only 4 channels per POKEY, this step is necessary in stereo mode so all 8 channels can be tested
-	beq do_179_ch3			; if equal, process it
-	EIF
-
-	cpx #2
-	bne do_ch2
-do_179_ch3
-	bit CH3_179
-	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
-	bit JOIN_34
-	beq do_179_ch3_a		; failsafe, 16-bit volume output should not happen in this channel
-	lda #$FF
-	bne loop_aggressive_init	; unconditional
-do_179_ch3_a
-	lda #$40 			; 1.79mhz mode in channel 3
-	bne loop_aggressive_init	; unconditional
-	
-do_ch2	
-
-	IFT TRACKS>4
-	cpx #5				; since there are only 4 channels per POKEY, this step is necessary in stereo mode so all 8 channels can be tested
-	beq do_join_12			; if equal, process it
-	EIF
-
-	cpx #1
-	bne do_ch1
-do_join_12
-	bit JOIN_12
-	beq do_clock_15			; if no join, skip directly to 15khz checks
-	bit CH1_179
-	beq do_clock_15			; no 1.79mhz mode in channel 1, skip ahead to 15khz mode check
-do_join_12_a
-	lda #$80			; sets 16-bit mode in channel 1+2
-	bne loop_aggressive_init	; unconditional
-	
-do_ch1					; x being equal to 0 or 4 should be unconditional here, no extra check necessary
-do_179_ch1				; that poor channel 1 has a ton of checks going, the 1.79mhz mode takes no shit
-	bit CH1_179
-	beq do_clock_15			; no 1.79mhz mode in channel 1, skip ahead, else, run the cycle of endless checks
-	bit JOIN_12
-	beq do_179_ch1_a
-	lda #$FF
-	bne loop_aggressive_init	; unconditional	
-do_179_ch1_a
-	bit CH3_179			
-	beq do_179_ch1_b		; if 1.79mhz mode is also active in channel 3, load the Triangle/Sawtooth value, and continue like normal
-	lda #$7F
-	bne loop_aggressive_init	; unconditional
-do_179_ch1_b
-	lda #$40 			; 1.79mhz mode in channel 3
-	bne loop_aggressive_init	; unconditional
-	
-do_clock_15
-	and #$01			; AND instruction here, if the 15khz mode is off, the result will always be 0, regardless of every other bits
-
-loop_aggressive_init
-	sta trackn_flags,x
-	dex
-	bmi done_aggressive_init	; index x has overflown, so the loop is finished
-	
-	IFT TRACKS>4
-	cpx #3				; since there are only 4 channels per POKEY, this step is necessary in stereo mode in case it was skipped
-	bne loop_aggressive_init_a
-	jmp start_aggressive_init_b	; if equal, process the remaining 4 channels, but first the proper AUDCTL value must be loaded
-	EIF
-
-loop_aggressive_init_a
-	tya				; fetch the AUDCTL backup before continuing into the loop
-	bne do_aggressive_init_a	; unconditional, AUDCTL is never going to be 0 here
-done_aggressive_init
-	ldx #TRACKS-1
-done_aggressive_init_a			; if the process was canceled at the earliest time, no need to load TRACKS into index x again
-	jmp pp1a
-	EIF
+;* start of Sawtooth code...
 
 do_sawtooth
 	IFT FEAT_FULL_SAWTOOTH
@@ -1779,6 +1662,12 @@ hijack_sawtooth_done_a
 	sta sawtoothtables+1		; for the other channel later, also used as a check if it is enabled	
 	jmp store_tables_lsb_a		; finish in the middle of the 64khz/1.79mhz branch
 	EIF
+
+;* end of Sawtooth code...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of BASS16 code...
 
 do_bass16	
 	IFT FEAT_BASS16		
@@ -1846,13 +1735,139 @@ no_bass16
 	EIF
 	EIF
 
+;* end of BASS16 code...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of the aggresive init code... 
+;* this is an experimental feature, it may or may not work at all!
+;*
+;* some bytes, arbitrarily distributed as flags:
+;*
+;* #$00 == Nothing! This is a free BEQ, useful for skipping code when it is encountered. This flag may save a ton of cycles in most situations.
+;* #$FF == Something is wrong! Abort everything if encountered, and skip to the next channel! eg: invalid 16-bit output, possibly more if necessary...
+;* #$01 == 15khz mode, for any channel. This one should always be correct when the bit is set, so it is important to not miss it.
+;* #$80 == 16-bit mode, for valid channels ONLY! When 16-bit mode is used, the next channel will be skipped, saving cycles in the process.
+;* #$40 == 1.79mhz mode, for valid channels ONLY! Normal 64khz or 15khz mode will be used otherwise.
+;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
+;*
+
+	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
+start_aggressive_init
+	IFT TRACKS>4			; stereo mode
+	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
+	beq start_aggressive_init_d	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
+	cmp old_v_audctl2		; are the values identical?
+	beq start_aggressive_init_c	; if equal, flags won't be updated for this time, cycles won't be wasted
+	tay 				; backup the AUDCTL value into index Y
+	bne do_ch4			; unconditional, start on the first known position, saving a redundant check
+start_aggressive_init_d
+	sta trackn_flags+4		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
+	sta trackn_flags+5
+	sta trackn_flags+6
+	sta trackn_flags+7
+start_aggressive_init_c
+	ldx #3				; since there are only 4 channels per POKEY, load the proper channel index value here
+	EIF				; endif
+start_aggressive_init_b
+	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
+	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
+	cmp old_v_audctl		; are the values identical?
+	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
+	tay				; backup the AUDCTL value into index Y
+	bne do_ch4_a			; unconditional, start on the first known position, saving a redundant check
+start_aggressive_init_e	
+	sta trackn_flags+0		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
+	sta trackn_flags+1
+	sta trackn_flags+2
+	sta trackn_flags+3	
+	beq done_aggressive_init	; unconditional, flags won't be updated further, cycles won't be wasted
+do_aggressive_init 
+	IFT TRACKS>4			; stereo mode
+	cpx #4				; are we in the right POKEY channels?
+	bcc do_ch4_a			; if x is lower than 4, we are not
+	beq do_179_ch1			; if equal, process the 1.79mhz ch1 checks
+do_ch4
+	cpx #7				; channel 4?
+	beq do_join_34			; if equal, process the Join 3+4 checks
+do_ch3	
+	cpx #6				; channel 3?
+	beq do_179_ch3			; if equal, process the 1.79mhz ch3 checks
+do_ch2	
+	cpx #5				; channel 2?
+	beq do_join_12			; if equal, process the Join 1+2 checks
+	EIF				; endif, all of the Right POKEY's channel are done
+do_ch4_a
+	cpx #3				; channel 4?
+	beq do_join_34			; if equal, process the Join 3+4 checks
+do_ch3_a	
+	cpx #2				; channel 3?
+	beq do_179_ch3			; if equal, process the 1.79mhz ch3 checks
+do_ch2_a	
+	cpx #1				; channel 2?
+	beq do_join_12			; if equal, process the Join 1+2 checks
+do_179_ch1				; x being equal to 0 is unconditional here, process the 1.79mhz ch1 checks.
+	bit CH1_179
+	beq do_clock_15			; no 1.79mhz mode in channel 1, skip ahead, else, run the cycle of endless checks
+	bit JOIN_12
+	bne do_fail_here		; branch to failsafe, 16-bit volume output should not happen in this channel
+	bit CH3_179			
+	bne do_saw_here			; if 1.79mhz mode is also active in channel 3, load the Triangle/Sawtooth value, else, branch to 1.79mhz mode value	
+do_179_here
+	lda #$40 			; 1.79mhz mode
+	bne loop_aggressive_init	; unconditional	
+do_179_ch3
+	bit CH3_179
+	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
+	bit JOIN_34
+	beq do_179_here			; branch to failsafe, 16-bit volume output should not happen in this channel
+do_fail_here
+	lda #$FF			; Invalid 16-bit mode
+	bne loop_aggressive_init	; unconditional		
+do_join_34
+	bit JOIN_34
+	beq do_clock_15			; if no join, skip directly to 15khz checks
+	bit CH3_179
+	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
+do_join_here
+	lda #$80			; Valid 16-bit mode
+	bne loop_aggressive_init	; unconditional	
+do_join_12
+	bit JOIN_12
+	beq do_clock_15			; if no join, skip directly to 15khz checks
+	bit CH1_179
+	bne do_join_here
+do_clock_15
+	and #$01			; AND instruction here, if the 15khz mode is off, the result will always be 0, regardless of every other bits
+loop_aggressive_init
+	sta trackn_flags,x
+	dex
+	bmi done_aggressive_init	; index x has overflown, so the loop is finished
+	IFT TRACKS>4
+	cpx #3				; since there are only 4 channels per POKEY, this step is necessary in stereo mode in case it was skipped
+	beq start_aggressive_init_b	; if equal, process the remaining 4 channels, but first the proper AUDCTL value must be loaded
+	EIF
+loop_aggressive_init_a
+	tya				; fetch the AUDCTL backup before continuing into the loop
+	bne do_aggressive_init		; unconditional, AUDCTL is never going to be 0 here
+done_aggressive_init
+	ldx #TRACKS-1
+	jmp pp1a
+do_saw_here				;* I had to move this here to save a few bytes for a BEQ, I cry a little
+	lda #$7F			; Sawtooth mode
+	bne loop_aggressive_init	; unconditional	
+	EIF				; end of aggressive init code
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of the SetPokey routines...
+
 SetPokey
 	IFT STEREOMODE==1		;* L1 L2 L3 L4 R1 R2 R3 R4
 	
 	ldy #$ff
 v_audctl2 equ *-1
 
-;	ldy v_audctl2
 	lda trackn_audf+0+4
 	ldx trackn_audf+0
 	
@@ -1896,8 +1911,6 @@ v_audctl2 equ *-1
 	
 	lda #$ff
 v_audctl equ *-1
-
-;	lda v_audctl
 	
 	sty $d218
 	sta $d208
@@ -1909,9 +1922,6 @@ v_skctl equ *-1
 	ldy #$03
 v_skctl2 equ *-1
 
-;	lda v_skctl
-;	ldy v_skctl2
-
 	sta $d20f	
 	sty $d21f		
 	EIF
@@ -1920,8 +1930,6 @@ v_skctl2 equ *-1
 	
 	ldy #$ff
 v_audctl equ *-1
-
-;	ldy v_audctl
 	
 	lda trackn_audf+0
 	ldx trackn_audc+0
@@ -1946,17 +1954,13 @@ v_audctl equ *-1
 	lda #$03
 v_skctl equ *-1	
 
-;	lda v_skctl
-
 	sta $d20f
 	EIF
 	
 	ELI STEREOMODE==2		;* L1 R2 R3 L4
 	
-;	ldy #$ff
-;v_audctl equ *-1
-
-	ldy v_audctl
+	ldy #$ff
+v_audctl equ *-1
 
 	lda trackn_audf+0
 	ldx trackn_audc+0
@@ -1982,21 +1986,17 @@ v_skctl equ *-1
 	
 	IFT FEAT_TWO_TONE
 	
-;	ldy #$03
-;v_skctl equ *-1	
-
-	lda v_skctl
+	ldy #$03
+v_skctl equ *-1	
 	
-	sta $d20f
-	sta $d21f
+	sty $d20f
+	sty $d21f
 	EIF
 	
 	ELI STEREOMODE==3		;* L1 L2 R3 R4
 	
-;	ldy #$ff
-;v_audctl equ *-1
-
-	ldy v_audctl
+	ldy #$ff
+v_audctl equ *-1
 
 	lda trackn_audf+0
 	ldx trackn_audc+0
@@ -2021,24 +2021,24 @@ v_skctl equ *-1
 	
 	IFT FEAT_TWO_TONE
 	
-;	ldy #$03
-;v_skctl equ *-1	
+	ldy #$03
+v_skctl equ *-1	
 
-	lda v_skctl
-
-	sta $d20f
-	sta $d21f
+	sty $d20f
+	sty $d21f
 	EIF
 	EIF
 	rts
 RMTPLAYEREND
 
-; Player ends here, what lies after is anything you want, and the extra workaround code if assembled as a 'tracker.obx' binary	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* Player ends here, what lies after is anything you want, and the extra workaround code if assembled as a 'tracker.obx' binary	
 
-; Let's not forget the tables and other RMT data! 
+;* Let's not forget the tables and other RMT data! 
 	icl "rmtdata.a65"
 	
-; The workaround code is mandatory in order to avoid many things breaking in RMT!
+;* The workaround code is mandatory in order to avoid many things breaking in RMT!
 	IFT FEAT_IS_TRACKER
 	icl "rmtextra.a65" 
 	EIF
