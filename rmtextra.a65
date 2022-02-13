@@ -1,40 +1,78 @@
 ; include with 'rmtplayr.a65'
 
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of GetInstrumentY2 code...
+
         org $3D00
-InstrumentY2                    ; seems like they go hand in hand?
-        sta trackn_note,x
-        tya 
-        asl @ 
-        sta trackn_instrx2,x
-        bmi SkipInstrumentY2
-        tay 
-        jmp SetUpInstrumentY2
+GetInstrumentY2			; 6502_jsr() was called by RMT with values in memory...
+        sta trackn_note,x	; store as the new note value
+        tya 			; transfer the index y to the accumulator
+        asl @ 			; shift the accumulator left 1 bit, essentially multiplying the value by 2
+        sta trackn_instrx2,x	; store in memory, positive value means new instrument to intialise
+        bmi SkipInstrumentY2	; if negative, there is no new instrument to initialise
+        tay 			; transfer the accumulator back to index y for the next step
+        jmp SetUpInstrumentY2	; new instrument to initialise with the values in memory. The subroutine will end with a rts, meaning the instrument has been set up and ready to use
 SkipInstrumentY2       
-        rts 
+        rts 			; 6502_jsr() ends upon hitting a RTS, the subroutine finished early, no new instrument was set up
+
+;* end of GetInstrumentY2 code...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of SetInstrumentVolume code...
 
         org $3E00
-SetInstrumentVolume             ; seems logical?
-        :4 asl @ 
-        sta trackn_volume,x
-        rts 
+SetInstrumentVolume 		; 6502_jsr() was called by RMT with values in memory...
+        :4 asl @ 		; shift the accumulator left 1 bit, 4 times, essentially multiplying the value by 16
+        sta trackn_volume,x	; store the new value in memory, which will be used for the volume lookup table during playback
+        rts 			; 6502_jsr() ends upon hitting a RTS, the volume value was updated
+        
+;* end of SetInstrumentVolume code...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of StopInstrument code...
 
         org $3E80
-StopInstrument                  ; I think?
-        lda #$00 
+StopInstrument                  ; 6502_jsr() was called by RMT with values in memory...
+        lda #0 			; zeroes will be written to the current channel's variables to stop it playing...
         sta trackn_volume,x
         sta trackn_instrhb,x
         sta trackn_instrdb,x
         sta trackn_audc,x
-        rts 
-        dta $00			; allign memory
+;	sta trackn_audf,x	; reset the channel's AUDF (not actually used)...
+        rts 			; 6502_jsr() ends upon hitting a RTS, values have been overwritten
         
+;* end of StopInstrument code...
+        
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+        
+;* Improvements: many more values could benefit from writing zeroes into them, preventing the leftover data to stay in memory and conflict with a bunch of things...
+;* Even better, an alternative version of rmt_silence could be added here as well, specifically for the purpose of properly reseting the driver when used in the tracker itself...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of plaintext data... this is totally useless, and purely cosmetic. Use only for RMT version 1.32.06 and above...
+
+       dta $00			; allign memory for the DriverVersion label... 
+;	org $????		; could be set anywhere... not yet decided...
 DriverVersion
 	dta c"Patch 16-3.1 by VinsCool"
 	dta $00			; allign memory, and text terminator
 	dta c"Hello Bitches... :3 Please don't mind me I am testing bytes overflow... is it dead?"
 	dta $00			; allign memory, and easter egg... hehehehe ;)
+	
+;* end of plaintext data...
 
-	org $3F00 ; RMT8 HEADER and some other placeholder stuff?
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* RMT8 HEADER and some other placeholder stuff? This is currently not yet understood... 
+;* Whatever this is used for exactly... It is MANDATORY to make the driver work at all in RMT!
+;* If this data is missing or damaged, the driver will behave incorrectly, leading to garbage data being played, or even a crash!
+;* since I have no full understanding of this part, it's included directly as data instead of code...
+
+	org $3F00 
 ExtraRMTStuff
 	dta $52,$4D,$54,$38,$40,$40,$01,$00,$10,$3F,$00,$00,$00,$00,$90,$3F
 	dta $00,$40,$00,$41,$00,$42,$00,$43,$00,$44,$00,$45,$00,$46,$00,$47
@@ -46,3 +84,10 @@ ExtraRMTStuff
 	dta $00,$70,$00,$71,$00,$72,$00,$73,$00,$74,$00,$75,$00,$76,$00,$77
 	dta $00,$78,$00,$79,$00,$7A,$00,$7B,$00,$7C,$00,$7D,$00,$7E,$00,$7F
 	dta $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FE,$00,$90,$3F
+	
+;* end of extra RMT stuff, whatever this is really...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* and that's all... nothing else needed here... yet... ;D 
+
