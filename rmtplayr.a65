@@ -19,9 +19,16 @@
 ;* TO DO: rename many labels into stuff that makes a lot more sense later...
 ;*
 
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
 ;* RMT FEATures definitions file
 	icl "rmt_feat.a65"
+	
 ;* For optimizations of RMT player routine to concrete RMT module only!
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of RMT definitions...
 
 	IFT STEREOMODE==1
 TRACKS			equ 8
@@ -34,7 +41,7 @@ TABLES			equ $B000
 INSTRPAR		equ 12
 
 ;* RMT ZeroPage addresses
-	org 203
+	org 203	     	;* org $CB
 	
 p_tis
 p_instrstable		org *+2
@@ -71,7 +78,7 @@ old_v_audctl2		org *+1
 	EIF
 	EIF
 
-	IFT TRACKS>4
+	IFT TRACKS>4			;* possible improvement: setting variables after the RMT driver itself? That would make adjustments easier to manage, if this works as I expect...
 	org PLAYER-$400+$40
 	ELS
 	org PLAYER-$400+$e0
@@ -84,7 +91,7 @@ trackn_idx		org *+TRACKS
 trackn_pause		org *+TRACKS
 trackn_note		org *+TRACKS
 trackn_volume		org *+TRACKS
-trackn_distor 		org *+TRACKS
+trackn_distor 		org *+TRACKS	; unused???
 trackn_shiftfrq		org *+TRACKS
 
 	IFT FEAT_PORTAMENTO
@@ -164,8 +171,14 @@ trackn_audc		org *+TRACKS
 v_aspeed		org *+1
 
 track_endvariables
+
+;* end of RMT definitions...
 	
-	org PLAYER-$0200	; I need to improve the label organisation here as well, also do I really need to org there? my memory is hazy why I did this...
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of RMT data... maybe this could be moved elsewhere, much like the tuning tables?
+	
+	org PLAYER-$0200	; I need to improve the label organisation here as well, also do I really need to org there? my memory is hazy, why did even do this...?
 	
 	IFT FEAT_AUDCTLMANUALSET
 AUDCTLBITS	; bits to test for AUDCTL lookup tables
@@ -206,7 +219,7 @@ vibtabnext
 	dta vib3-vib0+1,vib3-vib0+2,vib3-vib0+3,vib3-vib0+4,vib3-vib0+5,vib3-vib0+6,vib3-vib0+7,vib3-vib0+8,vib3-vib0+9,vib3-vib0+0
 	EIF	
 	
-	org PLAYER-$0100
+	org PLAYER-$0100	;* it may be possible to reduce this table by half the size it is... this was something I did for the older RMT Patch16 code, so the option is still valuable...
 volumetab
 	dta $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
 	dta $00,$00,$00,$00,$00,$00,$00,$00,$01,$01,$01,$01,$01,$01,$01,$01
@@ -225,20 +238,29 @@ volumetab
 	dta $00,$01,$02,$03,$04,$05,$06,$07,$07,$08,$09,$0A,$0B,$0C,$0D,$0E
 	dta $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
 
-;***************************;
-;* Set of RMT main vectors *;
-;***************************;
-        org PLAYER
+;* end of RMT data...
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of RMT jump table...
+
+        org PLAYER			;* Possible improvement: give proper labels to each JMPs below... to avoid confusion, and also make things easier to map in memory, unless the destination is being JSR'ed directly...
 
 RASTERMUSICTRACKER
-	jmp rmt_init
-	jmp rmt_play
-	jmp rmt_p3
-	jmp rmt_silence
-	jmp SetPokey
+	jmp rmt_init			;* Must be run first, to clear memory and initialise the player... Once this is done, run rmt_play afterwards, or Set_Pokey if you want to manually time certain things.
+	jmp rmt_play			;* One play each subroutine call. SetPokey is executed first, then all the play code is ran once, until the RTS. rmt_play could be called multiple times per frame if wanted.
+	jmp rmt_p3			;* Similar to rmt_play, but will also skip SetPokey and the instruments/songlines/tracklines initialisation, very useful for playing simple things.
+	jmp rmt_silence			;* Run this to stop the driver, and reset all POKEY registers to 0. This is also part of rmt_init when it is executed first.
+	jmp SetPokey			;* Run to copy the contents of the Shadow POKEY registers (v_audctl, v_skctl, trackn_audf,x etc) into the real ones. Will be run first each time rmt_play is called.
 	IFT FEAT_SFX
 	jmp rmt_sfx			;* A=note(0,..,60),X=channel(0,..,3 or 0,..,7),Y=instrument*2(0,2,4,..,126)
 	EIF
+	
+;* end of RMT jump table... from here, all the main driver code is being executed, have fun playing around! ;)
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of rmt_init code...
 	
 rmt_init
 	stx ns
@@ -323,6 +345,8 @@ ri1
 	EIF
 	jsr GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 	
+;* end of rmt_init code... rmt_silence will always be executed after the JSR above.
+	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 ;* start of rmt_silence code...
@@ -381,18 +405,19 @@ si1
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
-;* start of mainloop code here...
+;* start of mainloop code here... most of it is related to the songlines, tracklines and instruments initialisation...
 	
 GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 GetSongLine
 	ldx #0
-	stx v_abeat
+	stx v_abeat			; set the pattern row to 0 for the new songline... This could be exploited with an effect command related to premature pattern end, or pattern goto...
 	
 nn0
-        IFT FEAT_IS_VISUALP	; RMT Visualiser hack for displaying the pattern and row numbers
+nn0_a
+        IFT FEAT_IS_VISUALP		; RMT Visualiser hack for displaying the songline number, this is 100% useless but cool to have nonetheless.
 	lda p_song
-	sub MODUL+14
-	sta v_ord
+	sub MODUL+14 
+	sta v_ord			; this variable only exists in rmtvis, this is what will be used to display the songline number
 	lda p_song+1
 	sbc MODUL+15
 	lsr @
@@ -404,18 +429,19 @@ nn0
 	ror v_ord
 	EIF
 	EIF
-	IFT FEAT_IS_SIMPLEP	; Simple RMT Player hack for colour cycling, change the rasterbar colour ever pattern played
-	lda loop+1
-	add #16
-	sta loop+1   
+nn0_b
+	IFT FEAT_IS_SIMPLEP		; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
+	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
+	add #16				; offset the value by #$10 for a simple colour shuffle
+	sta loop+1   			; store back where it was loaded, overwriting the previous value
 	EIF
 	
 nn1	
 	txa
 	tay
 	lda (p_song),y
-	cmp #$fe
-	bcs nn2
+	cmp #$fe			; #$FE = Goto songline, #$FF = Empty track
+	bcs nn2				; branch if greater or equal
 	tay
 	lda (p_trackslbstable),y
 	sta trackn_db,x
@@ -426,9 +452,9 @@ nn1a
 	sta trackn_idx,x
 	lda #1
 nn1a2 	
-	sta trackn_pause,x
+	sta trackn_pause,x		; #1 is a new note, #0 is no new note
 	lda #$80
-	sta trackn_instrx2,x
+	sta trackn_instrx2,x		; #$80 is negative, will BMI when encountered, meaning no new instrument initialisation
 	inx
 	
 xtracks01	
@@ -445,10 +471,10 @@ xtracks02
 nn1b
 	jmp GetTrackLine
 nn2
-	beq nn3
+	beq nn3				; branch if equal to #$FE, this is a Goto songline command
 nn2a
-	lda #0
-	beq nn1a2
+	lda #0				; used to set the instrument to 0, meaning no new note
+	beq nn1a2			; unconditional
 nn3
 	ldy #2
 	lda (p_song),y
@@ -574,17 +600,25 @@ p2x0
 InitOfNewSetInstrumentsOnly
 p2x1 	
 	ldy trackn_instrx2,x
-	bmi p2x0
+	bmi p2x0		; if negative, there is no new instrument to initialise for this channel
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of RMT_SFX code...
+	
 	IFT FEAT_SFX
 	jsr SetUpInstrumentY2
 	jmp p2x0
-	
 rmt_sfx
 	sta trackn_note,x
 	lda #$f0		;* sfx note volume*16
 RMTSFXVOLUME equ *-1		;* label for sfx note volume parameter overwriting
 	sta trackn_volume,x
 	EIF
+	
+;* end of RMT_SFX code...
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 SetUpInstrumentY2
 	lda (p_instrstable),y
@@ -686,11 +720,13 @@ SetUpInstrumentY2
 	tay
 	lda (nt),y
 	sta trackn_tablenote,x
-xata_rtshere
+
 	IFT FEAT_SFX||FEAT_IS_TRACKER
-	rts ; a rts is mandatory for the 'tracker.obx' binary, else a lot of things break in RMT!
+	rts 			
+;* a rts is mandatory for the 'tracker.obx' binary, else a lot of things break in RMT! 
+;* look inside 'rmtextra.a65' for the exclusive tracker.obx code
 	ELS
-	jmp p2x0
+	jmp p2x0		; go process the next channel's instrument
 	EIF
 	
 rmt_play
@@ -787,7 +823,7 @@ dexdone
 
 	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
 	jmp start_aggressive_init
-pp1a	
+pp1a					;* this could be moved elsewhere... maybe in SetPokey? That would remove the necessity of conditionally assembling the Stereo case as well...
 	lda v_audctl
 	sta old_v_audctl
 	IFT TRACKS>4
@@ -838,6 +874,10 @@ pp2s
 	lda volumetab,y
 	sta tmp
 
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of manual tables code (unfinished)...
+
 	IFT FEAT_TABLE_MANUAL		; Manual tuning table loaded from instruments, this is currently not fully implemented into RMT...
 	lda trackn_pointertable,x
 	beq pp2sno			; a value of 0 means no pointer will be used, thus, can be skipped immediately
@@ -853,6 +893,8 @@ pp2s
 	tay
 	jmp pp2syes
 	EIF
+	
+;* end of manual tables code...
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
@@ -930,6 +972,8 @@ store_tables_lsb_c
 ;* end of tuning tables code...
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+;* start of instruments effect code...
 	
 InstrumentsEffects
 	IFT FEAT_EFFECTS
@@ -1022,13 +1066,13 @@ ei4
 	lda #0
 	sta frqaddcmd2
 	EIF
-	IFT FEAT_COMMAND1||FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND1||FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7	
 	lda reg2
 	IFT FEAT_FILTER
 	sta trackn_command,x
 	EIF
 AND70	and #$70
-	IFT 1==[FEAT_COMMAND1+FEAT_COMMAND2+FEAT_COMMAND3+FEAT_COMMAND4+FEAT_COMMAND5+FEAT_COMMAND6+FEAT_COMMAND7]		;[FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY]]
+	IFT 1==[FEAT_COMMAND1+FEAT_COMMAND2+FEAT_COMMAND3+FEAT_COMMAND4+FEAT_COMMAND5+FEAT_COMMAND6+FEAT_COMMAND7]	
 	beq cmd0
 	ELS
 	lsr @
@@ -1038,27 +1082,27 @@ jmx	bcc *
 	jmp cmd0
 	nop
 	jmp cmd1
-	IFT FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7	
 	nop
 	jmp cmd2
 	EIF
-	IFT FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7	
 	nop
 	jmp cmd3
 	EIF
-	IFT FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7	
 	nop
 	jmp cmd4
 	EIF
-	IFT FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7	
 	nop
 	jmp cmd5
 	EIF
-	IFT FEAT_COMMAND6||FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND6||FEAT_COMMAND7 
 	nop
 	jmp cmd6
 	EIF
-	IFT FEAT_COMMAND7		;FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_COMMAND7 
 	nop
 	jmp cmd7
 	EIF
@@ -1069,6 +1113,13 @@ jmx	bcc *
 	sta trackn_command,x
 	EIF
 	EIF
+	
+;* end of instruments effects code...
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of instruments commands code... this is a direct followup of the instruments effects code.
+	
 cmd1
 	IFT FEAT_COMMAND1
 	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
@@ -1391,6 +1442,8 @@ cmd0b3
 cmd0c
 	sta trackn_audf,x
 	
+;* end of instruments commands code... 
+	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 ;* start of Portamento code... This is currently not properly compatible with 16-bit mode, unfortunately.
@@ -1437,7 +1490,7 @@ pp11
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
-;* part of mainloop code...
+;* part of mainloop code... this is an extra step added for the purpose of clearning the memory from 16-bit or Sawtooth addresses when unused.
 
 	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
@@ -1740,8 +1793,8 @@ no_bass16
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 ;* start of the aggresive init code... 
+
 ;* this is an experimental feature, it may or may not work at all!
-;*
 ;* some bytes, arbitrarily distributed as flags:
 ;*
 ;* #$00 == Nothing! This is a free BEQ, useful for skipping code when it is encountered. This flag may save a ton of cycles in most situations.
@@ -1750,7 +1803,6 @@ no_bass16
 ;* #$80 == 16-bit mode, for valid channels ONLY! When 16-bit mode is used, the next channel will be skipped, saving cycles in the process.
 ;* #$40 == 1.79mhz mode, for valid channels ONLY! Normal 64khz or 15khz mode will be used otherwise.
 ;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
-;*
 
 	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
 start_aggressive_init
@@ -1856,7 +1908,9 @@ done_aggressive_init
 do_saw_here				;* I had to move this here to save a few bytes for a BEQ, I cry a little
 	lda #$7F			; Sawtooth mode
 	bne loop_aggressive_init	; unconditional	
-	EIF				; end of aggressive init code
+	EIF				
+	
+; end of aggressive init code...
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
@@ -2029,18 +2083,28 @@ v_skctl equ *-1
 	EIF
 	EIF
 	rts
-RMTPLAYEREND
-
+	
+;* end of SetPokey routines...
+	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
+	
+RMTPLAYEREND
 	
 ;* Player ends here, what lies after is anything you want, and the extra workaround code if assembled as a 'tracker.obx' binary	
 
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
 ;* Let's not forget the tables and other RMT data! 
 	icl "rmtdata.a65"
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 ;* The workaround code is mandatory in order to avoid many things breaking in RMT!
 	IFT FEAT_IS_TRACKER
 	icl "rmtextra.a65" 
 	EIF
 
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* And that's all folks :D
 
