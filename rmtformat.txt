@@ -1,7 +1,8 @@
 
 ; Raster Music Tracker -- .rmt file format
 ;
-; Reverse-Engineered by Ivo van Poorten, june 2012
+; Reverse-Engineered by Ivo van Poorten, June 2012
+; Additional infos by VinsCool, February 2022
 ;
 ; Described in pseudo-assembly
 
@@ -15,10 +16,10 @@ header:
     .text "RMT4"                ; or "RMT8" for stereo tunes
 
 song_info:
-    .byte max_track_length
-    .byte song_speed
-    .byte instrument_speed
-    .byte unused                ; seems to be always 1
+    .byte max_track_length	; maximal number of rows per track patterns, this could be exploited to change on the fly
+    .byte song_speed		; default song speed value, which will be overwritten if a speed command is used in tracks
+    .byte instrument_speed	; xVBI speed, eg: 1 is 1xVBI, or once per frame. This is technically not limited, but a maximum of 16 is more than enough, else it will start to lag a lot
+    .byte module_version	; since no new version has been defined yet, this is always set to 1. If the version is not matching, RMT will return an error
 
 table_pointers:
     .word instrument_table
@@ -178,4 +179,31 @@ strings:
     .textz "Song name"
     .textz "Instrument 00"
     .textz "Instrument 02"      ; unused instruments do not have an entry
+    
+; ----------------------------------------------------------------------------
+
+; Additions by Vin below... 
+
+; This is a feature not implemented yet, but planned to be used in the future. 
+; This might also require a bump to the module_version value for compatibility reasons.
+;
+; proof of concept:
+;
+; Manual Tuning Table Per Instrument
+;
+; format: .byte
+;
+;	$LM 	= LSB offset(s)/MSB offset
+;	bit(s) 	7-6	= LSB, for 4 possible values ($0x, $4x, $8x, $Cx,)
+;		5	= unused
+;		4	= unused
+;		3-0	= MSB, value from 0 to F (nybble)
+;
+; how to use:
+;
+; MSB offset: AND with $0F (%00001111), ORA with $B0, then write into nr+1
+; LSB offset: AND with $C0 (%11000000), then write into nr
+;
+; The steps of $40 fit nicely into a division of 4, 64 possible values per subpage, and 4 subpages (tables) per page
+; Bits 5 and 4 currently have no purpose but they could have some cool features too
 
