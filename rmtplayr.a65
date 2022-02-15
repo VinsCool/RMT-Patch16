@@ -890,15 +890,21 @@ do_tuning_tables
 	lda reg2		; Distortion and Command
 	and #$0E		; Only keep the Distortion bits
 	tay			; will be used for the tables MSB pointer, and the Distortion itself	
+	IFT FEAT_BASS16
 	cpy #$06		; are we using Distortion 6?
 	bne check_flags		; if not equal, continue like normal
 	lda tmp			; volume backup
 	beq check_flags		; if the volume is 0, continue like normal	
 	jmp do_bass16		;* process the BASS16 code from here if the initial test passed
+	EIF
 check_flags
 	lda trackn_flags,x	; flags previously set during the aggressive rmt_p3 initialisation, they are unconditional
 	beq store_tables_lsb	; #$00 = 64khz mode, unconditional
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bmi check_valid_16bit	; #$80 = Valid 16-bit channel, #$FF = Invalid 16-bit channel
+	EIF
+	
 	cmp #$40		; is the 1.79mhz flag set? if the value is above #$40, the sawtooth flag of #$7F is also set
 	beq store_tables_lsb	; if equal, the tables LSB pointer is the flag value, no further action needed	
 	bcc check_15khz		; a value below #$40 means the only possible outcome is a value of #$01, for 15khz mode
@@ -923,13 +929,17 @@ check_15khz_c
 	sta nr
 	lda #>PAGE_EXTRA_0	; tables MSB pointer, it's the same one regardless of the table used
 	bne store_tables_lsb_a	; unconditional 
+	
+	IFT FEAT_FULL_16BIT
 check_valid_16bit
 	cmp #$FF		; is the Invalid flag set?
 	beq hellno		; branch to failsafe if yes, we do not want sound in the Invalid channels!
-check_valid_16bit_a	
+check_valid_16bit_a
+	IFT FEAT_BASS16
 	cpy #$06		; are we using Distortion 6?
 	bne check_valid_16bit_b	; if not equal, continue like normal
 	jmp process_bass16	; else, execute the BASS16 code immediately since the 16-bit flag is set
+	EIF
 check_valid_16bit_b
 	sta nr			; 16-bit hi LSB
 	lda #$C0		; 64 bytes further for the 16-bit LSB table
@@ -944,6 +954,8 @@ hellno
 	sta trackn_audc,x
 	sta trackn_audf,x
 	jmp ppnext 		; skip this channel entirely if the failsafe branch occured
+	EIF
+	
 store_tables_lsb
 	sta nr			; tables LSB pointer, divided in slices of 64 bytes each
 	lda TABLES_MSB,y
@@ -1814,28 +1826,46 @@ do_aggressive_init_b
 done_aggressive_init
 	jmp pp1				; there is nothing else to do, either all flags were set, or no bits matched the checks
 do_179
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_12
 	bne do_join			; 16-bit ch1+2 if not equal
+	EIF
+	
+	IFT FEAT_FULL_SAWTOOTH
 	bit CH3_179
 	beq do_179_a			; sawtooth if not equal, or 1.79mhz mode in ch1 if equal
+	EIF
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_34
 	bne do_179_a			; 16-bit ch3+4 if not equal, it will take priority over sawtooth! 
+	EIF
+	
+	IFT FEAT_FULL_SAWTOOTH
 do_saw_flag 
 	lda #$7F			; Sawtooth flag
 	sta trackn_flags+0		; ch1
 	bne do_179_d			; unconditional, go write the ch3 flag as well since it is also active
+	EIF
+	
 do_179_a
 	lda #$40 			; 1.79mhz flag
 	sta trackn_flags+0		; ch1
 	tya				; get the backup back for the next step
 	bne do_aggressive_init_b	; unconditional		
 do_179_c
+
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_34
 	bne do_join_a			; 16-bit ch3+4 if not equal, or 1.79mhz mode in ch3 if equal
+	EIF
+	
 do_179_d 
 	lda #$40 			; 1.79mhz flag
 	sta trackn_flags+2		; ch3
 	bne done_aggressive_init	; unconditional	
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 do_join
 	lda #$80			; Valid 16-bit mode
 	sta trackn_flags+1		; ch2
@@ -1849,6 +1879,8 @@ do_join_a
 	lda #$FF			; Invalid 16-bit mode
 	sta trackn_flags+2		; ch3
 	bne done_aggressive_init	; unconditional	
+	EIF
+	
 	EIF	
 
 ; end of aggressive init code...
