@@ -1798,7 +1798,7 @@ start_aggressive_init_d
 start_aggressive_init_b
 	ldy v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
 	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-	cmp #$FF			; are the values identical?
+	cpy #$FF			; are the values identical?
 old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
 	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
 	bne do_aggressive_init		; unconditional
