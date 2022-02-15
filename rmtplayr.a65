@@ -1806,7 +1806,6 @@ do_aggressive_init
 	and #$01			; AND instruction here, if the 15khz mode is off, the result will always be 0, regardless of every other bits
 	bpl stealthy			; write using the same block, and set the flags
 do_aggressive_init_a
-	tya				; get the backup back for the next step
 	bit CH1_179
 	bne do_179
 do_aggressive_init_b	
@@ -1828,6 +1827,7 @@ do_saw_flag
 do_179_a
 	lda #$40 			; 1.79mhz flag
 	sta trackn_flags+0		; ch1
+	tya				; get the backup back for the next step
 	bne do_aggressive_init_b	; unconditional		
 do_179_c
 	bit JOIN_34
@@ -1841,6 +1841,7 @@ do_join
 	sta trackn_flags+1		; ch2
   	lda #$FF			; Invalid 16-bit mode
 	sta trackn_flags+0		; ch1
+	tya				; get the backup back for the next step
 	bne do_aggressive_init_b	; unconditional, go check for channel 3 for 1.79mhz mode
 do_join_a
 	lda #$80			; Valid 16-bit mode
