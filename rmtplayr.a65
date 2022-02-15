@@ -1784,24 +1784,27 @@ start_aggressive_init_d
 	EIF				; endif
 	
 start_aggressive_init_b
-	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
+	ldy v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
 	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
 	cmp #$FF			; are the values identical?
 old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
 	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
-	tay 				; backup the AUDCTL value into index Y
 	bne do_aggressive_init		; unconditional
 start_aggressive_init_e	
+	tay 				; backup the AUDCTL value into index Y
+stealthy				; a smooth hijack
 	sta trackn_flags+0		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
 	sta trackn_flags+1
 	sta trackn_flags+2
 	sta trackn_flags+3	
-	beq done_aggressive_init	; unconditional, flags won't be updated further, cycles won't be wasted
-	bne do_aggressive_init_a	; if the 15khz bit was set, the loop continue instead
-	
+	tya				; get the backup previously set
+	beq done_aggressive_init	; if index y is 0, flags won't be updated further, cycles won't be wasted
+	bne do_aggressive_init_a	; if the 15khz bit was set, the loop continue here
+
 do_aggressive_init 
+	tya				; get the backup back for the next step
 	and #$01			; AND instruction here, if the 15khz mode is off, the result will always be 0, regardless of every other bits
-	bne start_aggressive_init_e	; write using the same block, since the value is not 0 it will come back here
+	bpl stealthy			; write using the same block, and set the flags
 do_aggressive_init_a
 	tya				; get the backup back for the next step
 	bit CH1_179
