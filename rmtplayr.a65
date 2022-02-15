@@ -80,6 +80,9 @@ trackn_idx		org *+TRACKS
 trackn_pause		org *+TRACKS
 trackn_note		org *+TRACKS
 trackn_volume		org *+TRACKS
+trackn_volumeenvelope	org *+TRACKS
+trackn_command		org *+TRACKS
+trackn_effectparameter	org *+TRACKS
 trackn_shiftfrq		org *+TRACKS
 
 	IFT FEAT_PORTAMENTO
@@ -134,8 +137,7 @@ trackn_tablelop		org *+TRACKS
 trackn_tablespeeda	org *+TRACKS
 
 	IFT FEAT_FILTER
-trackn_command		org *+TRACKS
-trackn_filter		org *+TRACKS
+trackn_filter		org *+TRACKS		;* POTENTIAL OPTIMISATION: it is NOT necessary to use all tracks... only channel 1 and 2 will use it to offset the other...
 	EIF
 	
 	IFT FEAT_TABLE_MANUAL
@@ -381,12 +383,6 @@ si1
 	lda #$0A			
 	sta bass16_pointer		; PERMANENTLY change the value until a new CMD6 value is read
 	EIF	
-	
-;	IFT FEAT_INSTRSPEED==0
-;	lda v_instrspeed		; instrument speed (used when returning from rmt_init, doesn't matter after rmt_silence?)
-;	ELS
-;	lda #FEAT_INSTRSPEED
-;	EIF
 
 	IFT FEAT_INSTRSPEED==0
 	lda #$ff
@@ -425,10 +421,12 @@ nn0_a
 	EIF
 	EIF
 nn0_b
-	IFT FEAT_IS_SIMPLEP&&EXPORTXEX	; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
+	IFT FEAT_IS_SIMPLEP
+	IFT EXPORTXEX			; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
 	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
 	add #16				; offset the value by #$10 for a simple colour shuffle
 	sta loop+1   			; store back where it was loaded, overwriting the previous value
+	EIF 
 	EIF
 	
 nn1	
@@ -450,14 +448,11 @@ nn1a2
 	sta trackn_pause,x		; #1 is a new note, #0 is no new note
 	lda #$80
 	sta trackn_instrx2,x		; #$80 is negative, will BMI when encountered, meaning no new instrument initialisation
-	inx
-	
-xtracks01	
+	inx	
 	cpx #TRACKS
 	bne nn1
 	lda p_song
-	clc
-xtracks02	
+	clc	
 	adc #TRACKS
 	sta p_song
 	bcc GetTrackLine
@@ -535,8 +530,7 @@ voig
 	EIF
 	and #$f0
 	sta trackn_volume,x
-oo1x
-xtracks03sub1	
+oo1x	
 	cpx #TRACKS-1
 	bne oo1
 	IFT FEAT_CONSTANTSPEED==0
@@ -754,19 +748,16 @@ v_maxtracklen equ *-1
 	jmp GetTrackLine
 p2o3
 	jmp GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
-go_ppnext	
-	jmp ppnext
+	
+;go_ppnext				;* OPTIMISATION: this is no longer needed, use a JMP directly elsewhere
+;	jmp ppnext
 
-rmt_p3
-xtracks05sub1	
+rmt_p3	
+
 	ldx #TRACKS-1
 	
-; going to attempt an even more aggressive method here... which may save on the CMD7 fuckery as well.	
-; this seems to do the job well enough currently to avoid being 1 frame late, so far...
-
-	IFT FEAT_AUDCTLMANUALSET
-	IFT FEAT_GET_AUDCTL_EARLY||FEAT_COMMAND7
-	IFT FEAT_COMMAND7 
+;* combining the aggressive init and rmt_p3 in 1 thing, this is now an even more aggressive approach! 
+	
 dodex	
 	lda trackn_instrhb,x
 	beq dexnext			; process the next channel's bytes immediately if empty
@@ -774,24 +765,46 @@ dodex
 	lda trackn_instrdb,x
 	sta ns
 	ldy trackn_instridx,x
+	lda (ns),y			; volume byte	
+	sta trackn_volumeenvelope,x	; sta reg1
 	iny
-	lda (ns),y			; instrument distortion and cmd
+	lda (ns),y			; command and distortion byte
+	sta trackn_command,x		; sta reg2
+	iny
+	lda (ns),y			; $XY parameter byte
+	sta trackn_effectparameter,x	; sta reg3
+	iny
+	tya
+	cmp trackn_instrlen,x
+	bcc dodex_a
+	beq dodex_a
+	lda #$80
+	sta trackn_instrreachend,x
+	lda trackn_instrlop,x
+dodex_a
+	sta trackn_instridx,x
+
+	IFT FEAT_AUDCTLMANUALSET&&FEAT_COMMAND7
+dex_cmd7	
+	lda trackn_command,x
 	and #$70			; clear distortion and other bits
-	cmp #$70 			; command 7? must be equal to #$70 ONLY
-	bne dexnext			; always skip if CMD7 is not active
-	iny
-	lda (ns),y			; instrument $XY parameter
-	cmp #$FC                	; failsafe -> Volume Only Mode value or SKCTL toggle above this value
-	bcs dexnext	        	; skip overwriting trackn_audctl if anything is detected
-	sta trackn_audctl,x     	; store the new value in memory and overwrite anything left before previous value		
+	cmp #$70 			; command 7? 
+	bne dexnext			; skip if not equal
+	lda trackn_effectparameter,x	
+dex_xy
+	cmp #$FD                	; failsafe -> Volume Only Mode or SKCTL toggle 
+	bcs dexnext	        	; skip if above or equal #$FD 
+	sta trackn_audctl,x     	; overwrite the previous value	
+	EIF	
+	
 dexnext
 	dex
-	bmi dexdone
-	bpl dodex
+	bpl dodex			; continue until x is negative
 dexdone
-	ldx #TRACKS-1
-	EIF
-	IFT FEAT_GET_AUDCTL_EARLY	
+	ldx #TRACKS-1			; must get the tracks value again before the next part
+	
+pp0					; get AUDCTL as early as possible, properly this time!
+	IFT FEAT_AUDCTLMANUALSET
 	lda trackn_audctl+0
 	ora trackn_audctl+1
 	ora trackn_audctl+2
@@ -804,57 +817,34 @@ dexdone
 	ora trackn_audctl+7
 	sta v_audctl2		
 	EIF
-	EIF
-	EIF
 	ELS
-	IFT FEAT_GET_AUDCTL_EARLY	; if AUDCTL early is set anyway, it is set to 0 immediately, it may be overwritten by AUTOFILTER or BASS16 when needed
 	lda #0
 	sta v_audctl
 	IFT TRACKS>4
 	sta v_audctl2
 	EIF
 	EIF
-	EIF	
-
-	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
-pp1a	
-	jmp start_aggressive_init
-	EIF				;* OPTIMISATION: moved old AUDCTL values write to SetPokey
 	
-;	lda v_audctl
-;	sta old_v_audctl
-;	IFT TRACKS>4
-;	lda v_audctl2
-;	sta old_v_audctl2
-;	EIF	
+pp0_a
+	IFT FEAT_AGGRESSIVE_INIT 
+	jmp start_aggressive_init	; a LOT to be desired there... will be reworked in a much better way later
+	EIF 	
 
 pp1
 	lda trackn_instrhb,x
-	beq go_ppnext
-	sta ns+1
-	lda trackn_instrdb,x
-	sta ns
-	ldy trackn_instridx,x
-	lda (ns),y
-	sta reg1
-	iny
-	lda (ns),y
+	bne pp1_a			; continue if not equal, the channel will be skipped otherwise
+;	beq go_ppnext			;* OPTIMISATION: skip a BEQ to proceed a JMP again, BNE and JMP directly if equal instead
+	jmp ppnext
+	
+pp1_a					; copying the values to the zeropage to make things faster... but not all bytes need this...
+	lda trackn_command,x
 	sta reg2
-	iny
-	lda (ns),y
+	lda trackn_effectparameter,x
 	sta reg3
-	iny
-	tya
-	cmp trackn_instrlen,x
-	bcc pp2
-	beq pp2
-	lda #$80
-	sta trackn_instrreachend,x
-pp1b
-	lda trackn_instrlop,x
-pp2	
-	sta trackn_instridx,x
-	lda reg1
+	
+pp2
+;	lda reg1			;* OPTIMISATION: this is no longer necessary, use the value directly instead
+	lda trackn_volumeenvelope,x
 	IFT TRACKS>4
 	cpx #4
 	bcc pp2s
@@ -862,8 +852,8 @@ pp2
 	lsr @
 	lsr @
 	lsr @
-pp2s
 	EIF
+pp2s
 	and #$0f
 	ora trackn_volume,x
 	tay
@@ -1069,10 +1059,12 @@ ei4
 	EIF
 	IFT FEAT_COMMAND1||FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7	
 	lda reg2
-	IFT FEAT_FILTER
-	sta trackn_command,x
-	EIF
-AND70	and #$70
+	
+;	IFT FEAT_FILTER
+;	sta trackn_command,x	;* OPTIMISATION: this is no longer necessary
+;	EIF
+
+	and #$70
 	IFT 1==[FEAT_COMMAND1+FEAT_COMMAND2+FEAT_COMMAND3+FEAT_COMMAND4+FEAT_COMMAND5+FEAT_COMMAND6+FEAT_COMMAND7]	
 	beq cmd0
 	ELS
@@ -1108,11 +1100,11 @@ jmx	bcc *
 	jmp cmd7
 	EIF
 	EIF
-	ELS
-	IFT FEAT_FILTER
-	lda reg2
-	sta trackn_command,x
-	EIF
+;	ELS
+;	IFT FEAT_FILTER
+;	lda reg2
+;	sta trackn_command,x 	;* OPTIMISATION: this is no longer necessary
+;	EIF
 	EIF
 	
 ;* end of instruments effects code...
@@ -1494,21 +1486,25 @@ pp11
 ;* part of mainloop code... this is an extra step added for the purpose of clearning the memory from 16-bit or Sawtooth addresses when unused.
 
 	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+	ldy #0			; reset the values to 0, until the next player call since they're no longer needed for checks
+	
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
-	lda sawtoothtables+1
-	beq pp11a		; sawtooth not active
-	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
-	sta sawtoothtables
-	sta sawtoothtables+1
+;	lda sawtoothtables+1
+;	beq pp11a		; sawtooth not active
+;	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
+				;* OPTIMISATION: trying to help it a bit... this needs a much better fix...
+	sty sawtoothtables
+	sty sawtoothtables+1
 	EIF
 pp11a
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	lda pointer16bitlo+1
 	beq ppnext		; 16-bit mode not active
-	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
-	sta pointer16bitlo
-	sta pointer16bitlo+1
-	dex			; skip the next channel since it was updated early
+;	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
+
+	sty pointer16bitlo
+	sty pointer16bitlo+1
+	dex			;* skip the next channel since it was updated early!!
 	EIF
 	EIF
 	
@@ -1522,31 +1518,11 @@ rmt_p4
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 
-;* start of Autofilter code...
+;* start of Autofilter code... a much more stripped down version
 
 	IFT FEAT_FILTER
-	
-	ldx v_audctl		;* OPTIMISATION: AUDCTL was defined elsewhere, no need to fuss with this stuff anymore
-	
-;	IFT FEAT_AUDCTLMANUALSET||FEAT_GET_AUDCTL_EARLY
-;	IFT FEAT_GET_AUDCTL_EARLY
-;	ldx v_audctl
-;	ELS	
-;	lda trackn_audctl+0
-;	ora trackn_audctl+1
-;	ora trackn_audctl+2
-;	ora trackn_audctl+3
-;	tax
-;	stx v_audctl
-;	EIF
-;	ELS
-;	ldx #0
-;	stx v_audctl
-;	EIF
-
+	ldx v_audctl 
 qq1
-	
-	IFT FEAT_FILTER
 	IFT FEAT_FILTERG0L
 	lda trackn_command+0
 	bpl qq2
@@ -1557,7 +1533,6 @@ qq1
 	clc
 	adc trackn_filter+0
 	sta trackn_audf+2
-
 qq1a
 	txa
 	ora #4
@@ -1574,38 +1549,17 @@ qq2
 	clc
 	adc trackn_filter+1
 	sta trackn_audf+3
-
 qq2a
 	txa
 	ora #2
 	tax
 	EIF
 qq3
-	EIF
-	
-qq5
-	IFT FEAT_FILTER
 	stx v_audctl
 	EIF
-	IFT TRACKS>4
 	
-	IFT FEAT_AUDCTLMANUALSET||FEAT_GET_AUDCTL_EARLY
-	IFT FEAT_GET_AUDCTL_EARLY
-	ldx v_audctl2
-	ELS
-	lda trackn_audctl+4
-	ora trackn_audctl+5
-	ora trackn_audctl+6
-	ora trackn_audctl+7
-	tax
-	stx v_audctl2
-	EIF
-	ELS
-	ldx #0
-	stx v_audctl2
-	EIF
-	
-	IFT FEAT_FILTER
+	IFT FEAT_FILTER&&TRACKS>4
+	ldx v_audctl2 
 	IFT FEAT_FILTERG0R
 	lda trackn_command+0+4
 	bpl qs2
@@ -1616,7 +1570,6 @@ qq5
 	clc
 	adc trackn_filter+0+4
 	sta trackn_audf+2+4
-
 qs1a
 	txa
 	ora #4
@@ -1633,20 +1586,13 @@ qs2
 	clc
 	adc trackn_filter+1+4
 	sta trackn_audf+3+4
-
 qs2a
 	txa
 	ora #2
 	tax
 	EIF
 qs3
-	EIF
-	
-qs5
-	IFT FEAT_FILTER
 	stx v_audctl2
-	EIF
-	EIF
 	EIF
 	
 ;* end of Autofilter code...
@@ -1676,7 +1622,8 @@ do_sawtooth
 	bpl hijack_sawtooth_done	; AUTOFILTER command is off, skip overwriting the other things	
 	IFT FEAT_FILTER
 	eor #$80			; inverts the AUTOFILTER bit, so it does not overwrite things later
-	sta reg2			; store back to reg2 for later
+;	sta reg2			; store back to reg2 for later
+	sta trackn_command,x		;* OPTIMISATION: overwrite the command byte until the AUTOFILTER code since things where done early
 	EIF
 	lda #4				; high pass filter, CH1+3
 	IFT TRACKS>4			; stereo mode
@@ -1802,6 +1749,7 @@ no_bass16
 ;* start of the aggresive init code... 
 
 ;* this is an experimental feature, it may or may not work at all!
+
 ;* some bytes, arbitrarily distributed as flags:
 ;*
 ;* #$00 == Nothing! This is a free BEQ, useful for skipping code when it is encountered. This flag may save a ton of cycles in most situations.
@@ -1811,13 +1759,59 @@ no_bass16
 ;* #$40 == 1.79mhz mode, for valid channels ONLY! Normal 64khz or 15khz mode will be used otherwise.
 ;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
 
-	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
+
+;* POTENTIAL IMPROVEMENT: use reverse logic, AUDCTL first, channel number after?
+FUCK_NO	equ 0
+
+
+	IFT FEAT_AGGRESSIVE_INIT&&FUCK_NO
+start_aggressive_init
+
+	IFT TRACKS>4			; stereo mode
+	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
+	beq start_aggressive_init_d	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
+	cmp #$FF			; always execute for the first time with this value
+old_v_audctl2 equ *-1			; are the values identical?
+	beq start_aggressive_init_c	; if equal, flags won't be updated for this time, cycles won't be wasted
+	tay 				; backup the AUDCTL value into index Y
+	bne do_aggressive_init		; unconditional
+start_aggressive_init_d
+	sta trackn_flags+4		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
+	sta trackn_flags+5
+	sta trackn_flags+6
+	sta trackn_flags+7
+start_aggressive_init_c
+	ldx #3				; since there are only 4 channels per POKEY, load the proper channel index value here
+	EIF				; endif
+	
+start_aggressive_init_b
+	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
+	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
+	cmp #$FF			; are the values identical?
+old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
+	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
+	tay				; backup the AUDCTL value into index Y
+	bne do_aggressive_init		; unconditional
+start_aggressive_init_e	
+	sta trackn_flags+0		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
+	sta trackn_flags+1
+	sta trackn_flags+2
+	sta trackn_flags+3	
+	beq done_aggressive_init	; unconditional, flags won't be updated further, cycles won't be wasted
+do_aggressive_init 
+	; something
+
+done_aggressive_init
+	ldx #TRACKS-1
+	jmp pp1
+	EIF
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	IFT !FUCK_NO
 start_aggressive_init
 	IFT TRACKS>4			; stereo mode
 	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
 	beq start_aggressive_init_d	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-;	cmp old_v_audctl2		; are the values identical?
-
 	cmp #$FF			; always execute for the first time with this value
 old_v_audctl2 equ *-1			; OPTIMISATION: self modifiying code
 	
@@ -1835,8 +1829,6 @@ start_aggressive_init_c
 start_aggressive_init_b
 	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
 	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-;	cmp old_v_audctl		; are the values identical?
-
 	cmp #$FF			; always execute for the first time with this value
 old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
 
@@ -1923,7 +1915,8 @@ done_aggressive_init
 do_saw_here				;* I had to move this here to save a few bytes for a BEQ, I cry a little
 	lda #$7F			; Sawtooth mode
 	bne loop_aggressive_init	; unconditional	
-	EIF				
+	EIF 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 	
 ; end of aggressive init code...
 
@@ -1932,57 +1925,46 @@ do_saw_here				;* I had to move this here to save a few bytes for a BEQ, I cry a
 ;* start of the SetPokey routines...
 
 SetPokey
-	IFT STEREOMODE==1		;* L1 L2 L3 L4 R1 R2 R3 R4
-	
 	ldy #0
-v_audctl equ *-1
+v_audctl equ *-1			; left POKEY AUDCTL is loaded as the very first thing, for all STEREOMODE variations
 
+	IFT STEREOMODE==1		;* L1 L2 L3 L4 R1 R2 R3 R4
 	lda trackn_audf+0+4
 	ldx trackn_audf+0
-	
 	sta $d210
 	stx $d200
 	lda trackn_audc+0+4
 	ldx trackn_audc+0
-	
 	sta $d211
 	stx $d201
 	lda trackn_audf+1+4
 	ldx trackn_audf+1
-	
 	sta $d212
 	stx $d202
 	lda trackn_audc+1+4
 	ldx trackn_audc+1
-	
 	sta $d213
 	stx $d203
 	lda trackn_audf+2+4
 	ldx trackn_audf+2
-	
 	sta $d214
 	stx $d204
 	lda trackn_audc+2+4
 	ldx trackn_audc+2
-	
 	sta $d215
 	stx $d205
 	lda trackn_audf+3+4
 	ldx trackn_audf+3
-	
 	sta $d216
 	stx $d206
 	lda trackn_audc+3+4
 	ldx trackn_audc+3
-	
 	sta $d217
 	stx $d207
-	
 	lda #0
 v_audctl2 equ *-1
-	
-	sty $d218
-	sta $d208
+	sty $d208
+	sta $d218
 	
 	IFT FEAT_AGGRESSIVE_INIT
 	sty old_v_audctl
@@ -1999,10 +1981,6 @@ v_skctl2 equ *-1
 	EIF
 	
 	ELI STEREOMODE==0		;* L1 L2 L3 L4
-	
-	ldy #0
-v_audctl equ *-1
-	
 	lda trackn_audf+0
 	ldx trackn_audc+0
 	sta $d200
@@ -2032,10 +2010,6 @@ v_skctl equ *-1
 	EIF	
 	
 	ELI STEREOMODE==2		;* L1 R2 R3 L4
-	
-	ldy #$ff
-v_audctl equ *-1
-
 	lda trackn_audf+0
 	ldx trackn_audc+0
 	sta $d200
@@ -2059,19 +2033,17 @@ v_audctl equ *-1
 	sty $d208
 	
 	IFT FEAT_TWO_TONE
-	
-	ldy #$03
+	lda #$03
 v_skctl equ *-1	
+	sta $d20f
+	sta $d21f
+	EIF
 	
-	sty $d20f
-	sty $d21f
+	IFT FEAT_AGGRESSIVE_INIT
+	sty old_v_audctl 
 	EIF
 	
 	ELI STEREOMODE==3		;* L1 L2 R3 R4
-	
-	ldy #$ff
-v_audctl equ *-1
-
 	lda trackn_audf+0
 	ldx trackn_audc+0
 	sta $d200
@@ -2094,13 +2066,16 @@ v_audctl equ *-1
 	sty $d208
 	
 	IFT FEAT_TWO_TONE
-	
-	ldy #$03
+	lda #$03
 v_skctl equ *-1	
-
-	sty $d20f
-	sty $d21f
+	sta $d20f
+	sta $d21f
 	EIF
+
+	IFT FEAT_AGGRESSIVE_INIT
+	sty old_v_audctl 
+	EIF
+	
 	EIF
 	rts
 	
