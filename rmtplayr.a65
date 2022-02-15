@@ -1777,54 +1777,35 @@ no_bass16
 ;* AAAAAAA
 
 ;* todo: fix the stereo POKEY case for this...
+;* improvements: sawtooth and Invalid 16-bit flags may be much better, even useless, if the logic to check flags gets smarter?
 
 	IFT FEAT_AGGRESSIVE_INIT
 start_aggressive_init
 
 	IFT TRACKS>4			; stereo mode
 	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
-	beq start_aggressive_init_d	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-	cmp #$FF			; always execute for the first time with this value
-old_v_audctl2 equ *-1			; are the values identical?
-	beq start_aggressive_init_b	; if equal, flags won't be updated for this time, cycles won't be wasted
-	bne do_aggressive_init		; unconditional
-start_aggressive_init_d
-	sta trackn_flags+4		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
-	sta trackn_flags+5
-	sta trackn_flags+6
-	sta trackn_flags+7
+	; something
 	EIF				; endif
 	
 start_aggressive_init_b
-	ldy v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
-	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-	cpy #$FF			; are the values identical?
-old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
-	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
-	bne do_aggressive_init		; unconditional
-start_aggressive_init_e	
-	tay 				; backup the AUDCTL value into index Y
-stealthy				; a smooth hijack
-	sta trackn_flags+0		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
+	lda v_audctl			; left POKEY
+	tay 				; backup the AUDCTL first
+do_aggressive_init 
+	and #$01			; 15khz mode? is off, will always be 0 or 1, regardless of every other bits
+	sta trackn_flags+0		; write the first instrument flags for this POKEY here
 	sta trackn_flags+1
 	sta trackn_flags+2
 	sta trackn_flags+3	
-	tya				; get the backup previously set
-	beq done_aggressive_init	; if index y is 0, flags won't be updated further, cycles won't be wasted
-	bne do_aggressive_init_a	; if the 15khz bit was set, the loop continue here
-
-do_aggressive_init 
-	tya				; get the backup back for the next step
-	and #$01			; AND instruction here, if the 15khz mode is off, the result will always be 0, regardless of every other bits
-	bpl stealthy			; write using the same block, and set the flags
+	tya				; fetch the AUDCTL backup
 do_aggressive_init_a
-	bit CH1_179
-	bne do_179
+	bit CH1_179			
+	bne do_179			; if not equal, do the checks for 1.79mhz mode in ch1 
 do_aggressive_init_b	
 	bit CH3_179
-	bne do_179_c			; skip sawtooth checks if this line was reached
+	bne do_179_c			; if not equal, do the checks for 1.79mhz mode in ch1, and skip the sawtooth checks 
 done_aggressive_init
-	jmp pp1				; there is nothing else to do, either all flags were set, or no bits matched the checks
+	jmp pp1				; nothing else to do, either all flags were set, or no bits matched the checks
+
 do_179
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_12
@@ -1930,12 +1911,7 @@ v_audctl equ *-1			; left POKEY AUDCTL is loaded as the very first thing, for al
 v_audctl2 equ *-1
 	sty $d208
 	sta $d218
-	
-	IFT FEAT_AGGRESSIVE_INIT
-	sty old_v_audctl
-	sta old_v_audctl2	
-	EIF
-	
+		
 	IFT FEAT_TWO_TONE
 	lda #$03
 v_skctl equ *-1	
@@ -1968,10 +1944,6 @@ v_skctl2 equ *-1
 	lda #$03
 v_skctl equ *-1	
 	sta $d20f
-	EIF
-	
-	IFT FEAT_AGGRESSIVE_INIT
-	sty old_v_audctl 
 	EIF	
 	
 	ELI STEREOMODE==2		;* L1 R2 R3 L4
@@ -2004,10 +1976,6 @@ v_skctl equ *-1
 	sta $d21f
 	EIF
 	
-	IFT FEAT_AGGRESSIVE_INIT
-	sty old_v_audctl 
-	EIF
-	
 	ELI STEREOMODE==3		;* L1 L2 R3 R4
 	lda trackn_audf+0
 	ldx trackn_audc+0
@@ -2035,10 +2003,6 @@ v_skctl equ *-1
 v_skctl equ *-1	
 	sta $d20f
 	sta $d21f
-	EIF
-
-	IFT FEAT_AGGRESSIVE_INIT
-	sty old_v_audctl 
 	EIF
 	
 	EIF
