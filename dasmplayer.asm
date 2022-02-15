@@ -1,32 +1,45 @@
 ;************************************************;
 ;* Simple RMT Player                            *;
+;* For SAP and XEX music exports from RMT	*;
 ;* Recreation from disassembled code            *;
 ;* Original version by Raster/C.P.U., 2003-2004 *;
 ;* Recreation by VinsCool                       *;
-;* Version 3, 07-02-2022                        *;
+;* Version 4, 14-02-2022                        *;
 ;************************************************;
 
-; chose between the Atari Executable (.obx) or SAP format, must be either one (not both or none!)
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 
-EXPORTOBX	equ 1
+;* start of dasmplayer definitions...
+
+; Export format, Atari Executable (XEX/OBX) or SAP
+
+EXPORTXEX	equ 1
 EXPORTSAP	equ 0
-	
+
+	ERT [EXPORTXEX+EXPORTSAP]=0	;* No format defined!
+	ERT [EXPORTXEX+EXPORTSAP]=2	;* Only 1 format can be defined!
+
 ; starting line for songs when loaded, useful for playing from different lines or subtunes
 
 STARTLINE	equ 0 
-
-; Stereo mode, copied over from 'rmtplayr.a65' for easier access during edit
-
-STEREOMODE	equ 0		; 0 => compile RMTplayer for 4 tracks Mono
-				; 1 => compile RMTplayer for 8 tracks Stereo 
-				; 2 => compile RMTplayer for 4 tracks Stereo 
-				; 3 => compile RMTplayer for 4 tracks Stereo 
-				; 4 => compile RMTplayer for 8 tracks Dual Mono LR1 LR2 LR3 LR4
 
 ; playback speed will be adjusted accordingly in the other region
 
 REGIONPLAYBACK	equ 1		; 0 => PAL
 				; 1 => NTSC
+
+; Stereo mode must be defined in 'rmt_feat.a65', in this case, this must be set to 1, otherwise, it will be defined here
+
+STEREODEFINED	equ 0
+
+	IFT !STEREODEFINED
+STEREOMODE	equ 0
+	EIF
+				;* 0 => compile RMTplayer for 4 tracks mono
+				;* 1 => compile RMTplayer for 8 tracks stereo
+				;* 2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
+				;* 3 => compile RMTplayer for 4 tracks stereo L1 L2 R3 R4
+				;* 4 => compile RMTplayer for 8 tracks Dual Mono LR1 LR2 LR3 LR4
 
 ; screen line for synchronization, important to set with a good value to get smooth execution
 
@@ -57,19 +70,23 @@ VCOUNT	equ $D40B
 WSYNC	equ $d40A 		; wait for hblank
 NMIEN	equ $D40E
 
-	IFT EXPORTSAP
-	opt h-			; plain text data
-	icl 'sap.asm'
-	opt h+			; assemble rmtplayr here
-	EIF
+;* end of dasmplayer definitions...
 
-; rmtplayr... starts at $3182 in the original, but all data was moved to $B000 in Patch 16
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of SAP format...
+
+	IFT EXPORTSAP
+	opt h- 
+	icl 'sap.asm' 		; SAP plaintext data 
+	opt h+ 
+
+; assemble rmtplayr here... 
 
 	icl 'rmtplayr.a65'	; execution address is $3400
 
-; additional SAP init code for region adjustment, exclusive to hardware(?) or Altirra emulator for now
+; assemble SAP init here... used for region adjustment, seems exclusive to hardware(?) and Altirra emulator for now
 
-	IFT EXPORTSAP
 	org $3E00		; same address used with Simple RMT Player because why not
 	tax			; somehow the subtune is loaded in the accumulator at init
 	lda subtune,x		; load a subtune based on the song line, indexed by x
@@ -107,10 +124,21 @@ tabpp
 subtune
 ;	dta $00,$0A,$20		; subtune line, can be as many as wanted, however, the SAP specs limit at 32
 	EIF
+	
+;* end of SAP format...
 
-; begin Simple RMT Player
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 
-	IFT EXPORTOBX
+;* start of XEX format...
+
+	IFT EXPORTXEX
+	
+; assemble rmtplayr here... 
+
+	icl 'rmtplayr.a65'	; execution address is $3400
+
+; assemble Simple RMT Player here... 
+	
 	org $3D00		; may become $3D00 instead of $3E00 due to the extra VBI checks going
 start       
 	ldx #0			; disable playfield and the black colour value
@@ -290,31 +318,7 @@ wait
 	cmp RTCLOK+2		; compare to itself
 	beq wait		; equal means it vblank hasn't began
 	rts
-
-; text strings, each line holds 40 characters, line 5 is toggled with the SHIFT key
-
-	org $3F00
-
-;line_1	dta d"Line 1                                  "
-;line_2	dta d"Line 2                                  "
-;line_3	dta d"Line 3                                  "
-;line_4	dta d"Line 4 (hold SHIFT to toggle)           "
-;line_5	dta d"Line 5 (SHIFT is being held right now)  "
-
-
-;line_1	dta d"Another Dumb Experiment                 "
-;line_2	dta d"Patch16-2 Test Binary                   "
-;line_3	dta d"Composed by VinsCool, Mostly Improvised "
-;line_4	dta d"2022                                    "
-;line_5	dta d"Do Androids Dream of Electric Sheep?    "
-
-
-line_1	dta d"                                        "
-line_2	dta d"?xVBI                                   "
-line_3	dta d"RMT P16-3 Test Binary                   "
-line_4	dta d"                                        "
-line_5	dta d"Drugs are bad, mmm'kay?! Don't do drugs!"
-
+	
 ; Display list
 
 dlist       
@@ -325,23 +329,39 @@ txt_toggle
 	dta a(line_4)		; memory address set to line_4 by default, or line_5 when SHIFT is held
 	dta $41,a(dlist)	; Jump and wait for vblank, return to dlist
 
-; line counter spacing table for instrument speed from 1 to 4
+; line counter spacing table for instrument speed from 1 to 16
 
 tabpp       
-	dta 156,78,52,39,31,26,22,19,17,15,14,13,12,11,10,9	; 1xVBI to 16xVBI, some values need manual adjustments
+	dta 156,78,52,39,31,26,22,19,17,15,14,13,12,11,10,9 
 
 oldvbi	
 	dta a(0)		; vbi address backup
 
+; text strings, each line holds 40 characters, line 5 is toggled with the SHIFT key
+
+	org $3F00		; must be at this memory address 
+
+line_1	dta d"Line 1                                  "
+line_2	dta d"Line 2                                  "
+line_3	dta d"Line 3                                  "
+line_4	dta d"Line 4 (hold SHIFT to toggle)           "
+line_5	dta d"Line 5 (SHIFT is being held right now)  "
+
 ; set run address
 
 	run start
-	EIF
+	EIF 
+	
+;* end of XEX format...
+	
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 
 ; insert actual .rmt module
 
 	opt h-			; RMT module is standard Atari binary file already
 	ins "music.rmt"		; include music RMT module
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
 
 ; and that's all :D
 

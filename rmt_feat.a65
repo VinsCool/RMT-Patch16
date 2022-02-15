@@ -5,11 +5,6 @@
 
 ;* ------------------------------------------------------------------------------------------------------------
 
-;* THIS IS FOR TESTING PURPOSES, TEMPORARY WAY TO COMMENT CODE OUT
-DONTUSEME		equ 1	
-
-;* ------------------------------------------------------------------------------------------------------------
-
 ;* --------BEGIN--------
 
 FEAT_SFX		equ 0			;* 0 => No SFX support, 1 => SFX support
@@ -20,48 +15,71 @@ FEAT_CONSTANTSPEED	equ 0			;* cca 28 bytes
 
 ;* ------------------------------------------------------------------------------------------------------------
 
-;* PATCH16-2 ADDITIONS BY VINSCOOL, USE ONLY IF YOU KNOW WHAT YOU ARE DOING!
+;* PATCH16-3 ADDITIONS BY VINSCOOL, USE ONLY IF YOU KNOW WHAT YOU ARE DOING!
 
-STEREOMODE		equ 1			;0 => compile RMTplayer for 4 tracks mono
-;*						;1 => compile RMTplayer for 8 tracks stereo
-;*						;2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
-;*						;3 => compile RMTplayer for 4 tracks stereo L1 L2 R3 R4
-;*
-;* Stereo mode can be commented out if it is defined from a different location (eg: game/demo code, dasmplayer.asm, etc)
-;* STEREO MODE MUST ALWAYS BE 1 IF THE OUTPUT IS INTENDED FOR USE AS RMT DRIVER BINARY, ELSE IT WILL BE BROKEN!
+;* ------------------------------------------------------------------------------------------------------------
 
 ;* Many things seem to be hardcoded to Raster Music Tracker... enable ONLY if the target output is the actual RMT driver binary (tracker.obx)!
-FEAT_IS_TRACKER 	equ 1
+
+FEAT_IS_TRACKER 	equ 0
 
 ;* There are many things tightly related to RMT Visualizer exclusively, they can be skipped otherwise.
+
 FEAT_IS_VISUALP 	equ 0
 
 ;* Simple RMT Player is a simple recreation of the original .xex export player from RMT, with some changes, skip if not needed.
-FEAT_IS_SIMPLEP 	equ 0
+
+FEAT_IS_SIMPLEP 	equ 1
+
+;* ------------------------------------------------------------------------------------------------------------
+
+;* STEREO MODE MUST ALWAYS BE 1 IF THE OUTPUT IS INTENDED FOR USE AS RMT DRIVER BINARY, ELSE IT WILL BE BROKEN!
+	
+			IFT FEAT_IS_TRACKER
+STEREOMODE		equ 1
+			ELS
+;STEREOMODE		equ 0
+						;* 0 => compile RMTplayer for 4 tracks mono
+						;* 1 => compile RMTplayer for 8 tracks stereo
+						;* 2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
+						;* 3 => compile RMTplayer for 4 tracks stereo L1 L2 R3 R4
+						;* 4 => compile RMTplayer for 8 tracks Dual Mono LR1 LR2 LR3 LR4
+			EIF
+			
+;* Stereo mode can be defined from a different location (eg: game/demo code, dasmplayer.asm, etc), comment this out if necessary
+
+;* ------------------------------------------------------------------------------------------------------------
 
 ;* THE main point of interest for the Patch16 driver hack. Allows most of the tables and combinations being loaded through tons of parameters, mainly AUDCTL.
-;* if the full set of tables are not needed, this will save a ton of memory and cycles while turned off.
+
 FEAT_FULL_TABLES_HIJACK equ 1
 
 ;* Two-Tone Filter toggle code, not much but it can modulate into really awesome sounds
+
 FEAT_TWO_TONE		equ 1
 
 ;* Get the POKEY AUDCTL(s) as early as possible, this is experimental code, keep enabled if you are unsure since many new things depend on this!
+
 FEAT_GET_AUDCTL_EARLY	equ 1
 
 ;* New 16-bit code, for full 16-bit support
+
 FEAT_FULL_16BIT		equ 1
 
 ;* Alternative 16-bit method, which simplifies the old BASS16 approach, allowing Distortion 6 to be used very easily with the new 16-bit code, even without all the other 16-bit tables!
+
 FEAT_BASS16		equ 1
 
 ;* New Sawtooth code, output the Sawtooth waveform, or Triangle
+
 FEAT_FULL_SAWTOOTH	equ 1
 
 ;* New experimental approach, even more aggressive than FEAT_GET_AUDCTL_EARLY and FEAT_FULL_TABLES_HIJACK combined!
+
 FEAT_AGGRESSIVE_INIT	equ 1
 
 ;* Manual tuning table loaded from instruments, this is experimental code, do not use unless you have a reason to try it out!
+
 FEAT_TABLE_MANUAL	equ 0
 
 ;* ------------------------------------------------------------------------------------------------------------
