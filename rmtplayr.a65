@@ -1,22 +1,15 @@
 ;*
-;* Raster Music Tracker, RMT Atari routine version 1.20090108
+;* Raster Music Tracker, RMT Atari routine version Patch16-3.2
 ;* (c) Radek Sterba, Raster/C.P.U., 2002 - 2009
 ;* http://raster.atari.org
 ;*
-;* Warnings:
+;* Unofficial version by VinsCool, 2021 - 2022
+;* https://github.com/VinsCool/RMT-Patch16
 ;*
-;* 1. RMT player routine needs 19 itself reserved bytes in zero page (no accessed
-;*    from any other routines) as well as cca 1KB of memory before the "PLAYER"
-;*    address for frequency tables and functionary variables. It's:
-;*	  a) from PLAYER-$03c0 to PLAYER for stereo RMTplayer
-;*    b) from PLAYER-$0320 to PLAYER for mono RMTplayer
-;*
-;* 2. RMT player routine MUST (!!!) be compiled from the begin of the memory page.
-;*    i.e. "PLAYER" address can be $..00 only!
-;*
-;* 3. Because of RMTplayer provides a lot of effects, it spent a lot of CPU time.
-;*
-;* TO DO: rename many labels into stuff that makes a lot more sense later...
+;* TO DO: A lot... So much to re-order and cleanup...
+;* I must recalculate everything, once the full code cleanup and optimisation is done.
+;* Currently, all infos are incorrect due to the massive amount of changes I have done into the code.
+;* I apologise for the inconvenience, I am doing my best to clean everything to make sense again.
 ;*
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
@@ -60,38 +53,33 @@ tmp			org *+1
 frqaddcmd2		org *+1
 	EIF
 
-	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16	; to improve for ASM optimisations
-	IFT FEAT_AUDCTLMANUALSET||FEAT_BASS16
+; these 2 pointer hijacking pieces could be implemented better...
+
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 pointer16bitlo		org *+2
 	EIF
-	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+	
+	IFT FEAT_FULL_SAWTOOTH
 sawtoothtables		org *+2
-	EIF	
-	EIF
-	EIF
+	EIF 
+	
+;* possible improvement: setting variables after the RMT driver itself? 
+;* That would make adjustments easier to manage, if this works as I expect...
 
-	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
-old_v_audctl		org *+1
-	IFT TRACKS>4
-old_v_audctl2		org *+1	
-	EIF
-	EIF
-
-	IFT TRACKS>4			;* possible improvement: setting variables after the RMT driver itself? That would make adjustments easier to manage, if this works as I expect...
+	IFT TRACKS>4			
 	org PLAYER-$400+$40
 	ELS
 	org PLAYER-$400+$e0
 	EIF
 	
 track_variables
+
 trackn_db		org *+TRACKS
 trackn_hb		org *+TRACKS
 trackn_idx		org *+TRACKS
 trackn_pause		org *+TRACKS
 trackn_note		org *+TRACKS
 trackn_volume		org *+TRACKS
-trackn_distor 		org *+TRACKS	; unused???
 trackn_shiftfrq		org *+TRACKS
 
 	IFT FEAT_PORTAMENTO
@@ -147,9 +135,6 @@ trackn_tablespeeda	org *+TRACKS
 
 	IFT FEAT_FILTER
 trackn_command		org *+TRACKS
-	EIF
-	
-	IFT FEAT_FILTER
 trackn_filter		org *+TRACKS
 	EIF
 	
@@ -266,10 +251,10 @@ rmt_init
 	stx ns
 	sty ns+1
 	IFT FEAT_NOSTARTINGSONGLINE==0
-	pha
+	pha	; backup the song line into the stack for now... I wonder if I could just use tmp in zeropage instead...
 	EIF
 		
-	IFT track_endvariables-track_variables>255
+	IFT track_endvariables-track_variables>255	; more than 255 variables in memory...
 	ldy #0
 	tya
 ri0	
@@ -277,7 +262,8 @@ ri0
 	sta track_endvariables-$100,y
 	iny
 	bne ri0
-	ELS
+	
+	ELS						
 	ldy #track_endvariables-track_variables
 	lda #0
 ri0	
@@ -285,6 +271,7 @@ ri0
 	dey
 	bne ri0
 	EIF
+	
 	ldy #4
 	lda (ns),y
 	sta v_maxtracklen
@@ -394,8 +381,16 @@ si1
 	lda #$0A			
 	sta bass16_pointer		; PERMANENTLY change the value until a new CMD6 value is read
 	EIF	
+	
+;	IFT FEAT_INSTRSPEED==0
+;	lda v_instrspeed		; instrument speed (used when returning from rmt_init, doesn't matter after rmt_silence?)
+;	ELS
+;	lda #FEAT_INSTRSPEED
+;	EIF
+
 	IFT FEAT_INSTRSPEED==0
-	lda v_instrspeed
+	lda #$ff
+v_ainstrspeed equ *-1			; return instrument speed, does not seem to matter after rmt_init?
 	ELS
 	lda #FEAT_INSTRSPEED
 	EIF
@@ -430,7 +425,7 @@ nn0_a
 	EIF
 	EIF
 nn0_b
-	IFT FEAT_IS_SIMPLEP		; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
+	IFT FEAT_IS_SIMPLEP&&EXPORTXEX	; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
 	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
 	add #16				; offset the value by #$10 for a simple colour shuffle
 	sta loop+1   			; store back where it was loaded, overwriting the previous value
@@ -771,7 +766,7 @@ xtracks05sub1
 
 	IFT FEAT_AUDCTLMANUALSET
 	IFT FEAT_GET_AUDCTL_EARLY||FEAT_COMMAND7
-	IFT FEAT_COMMAND7		;&&[FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY]
+	IFT FEAT_COMMAND7 
 dodex	
 	lda trackn_instrhb,x
 	beq dexnext			; process the next channel's bytes immediately if empty
@@ -822,15 +817,16 @@ dexdone
 	EIF	
 
 	IFT FEAT_AGGRESSIVE_INIT&&FEAT_FULL_TABLES_HIJACK
+pp1a	
 	jmp start_aggressive_init
-pp1a					;* this could be moved elsewhere... maybe in SetPokey? That would remove the necessity of conditionally assembling the Stereo case as well...
-	lda v_audctl
-	sta old_v_audctl
-	IFT TRACKS>4
-	lda v_audctl2
-	sta old_v_audctl2
-	EIF	
-	EIF
+	EIF				;* OPTIMISATION: moved old AUDCTL values write to SetPokey
+	
+;	lda v_audctl
+;	sta old_v_audctl
+;	IFT TRACKS>4
+;	lda v_audctl2
+;	sta old_v_audctl2
+;	EIF	
 
 pp1
 	lda trackn_instrhb,x
@@ -979,6 +975,11 @@ InstrumentsEffects
 	IFT FEAT_EFFECTS
 	lda trackn_effdelay,x
 	beq ei2
+	
+; possible improvement: use CMP #2 instead? This could save a CLC instruction...
+;	cmp #2			; if A >= 2 -> skip, 
+;	bcs ei1			; if A < 2 -> carry flag not set, so it must be A = 1, 0 was done with beq ei2
+	
 	cmp #1
 	bne ei1
 	lda trackn_shiftfrq,x
@@ -1524,21 +1525,25 @@ rmt_p4
 ;* start of Autofilter code...
 
 	IFT FEAT_FILTER
-	IFT FEAT_AUDCTLMANUALSET||FEAT_GET_AUDCTL_EARLY
-	IFT FEAT_GET_AUDCTL_EARLY
-	ldx v_audctl
-	ELS	
-	lda trackn_audctl+0
-	ora trackn_audctl+1
-	ora trackn_audctl+2
-	ora trackn_audctl+3
-	tax
-	stx v_audctl
-	EIF
-	ELS
-	ldx #0
-	stx v_audctl
-	EIF
+	
+	ldx v_audctl		;* OPTIMISATION: AUDCTL was defined elsewhere, no need to fuss with this stuff anymore
+	
+;	IFT FEAT_AUDCTLMANUALSET||FEAT_GET_AUDCTL_EARLY
+;	IFT FEAT_GET_AUDCTL_EARLY
+;	ldx v_audctl
+;	ELS	
+;	lda trackn_audctl+0
+;	ora trackn_audctl+1
+;	ora trackn_audctl+2
+;	ora trackn_audctl+3
+;	tax
+;	stx v_audctl
+;	EIF
+;	ELS
+;	ldx #0
+;	stx v_audctl
+;	EIF
+
 qq1
 	
 	IFT FEAT_FILTER
@@ -1650,14 +1655,16 @@ qs5
 	
 ;* return of instrument speed code here... I wonder if there may be a way to exploit this?
 	
-rmt_p5
-	IFT FEAT_INSTRSPEED==0||FEAT_INSTRSPEED>1
-	lda #$ff
-v_ainstrspeed equ *-1
-	ELS
-	lda #1
-	EIF
-	rts
+rmt_p5		;* OPTIMISATION: seems like this was not necessary, end directly with a RTS
+	rts 
+	
+;	IFT FEAT_INSTRSPEED==0||FEAT_INSTRSPEED>1
+;	lda #$ff
+;v_ainstrspeed equ *-1
+;	ELS
+;	lda #1
+;	EIF
+;	rts
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 
@@ -1809,7 +1816,11 @@ start_aggressive_init
 	IFT TRACKS>4			; stereo mode
 	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
 	beq start_aggressive_init_d	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-	cmp old_v_audctl2		; are the values identical?
+;	cmp old_v_audctl2		; are the values identical?
+
+	cmp #$FF			; always execute for the first time with this value
+old_v_audctl2 equ *-1			; OPTIMISATION: self modifiying code
+	
 	beq start_aggressive_init_c	; if equal, flags won't be updated for this time, cycles won't be wasted
 	tay 				; backup the AUDCTL value into index Y
 	bne do_ch4			; unconditional, start on the first known position, saving a redundant check
@@ -1824,7 +1835,11 @@ start_aggressive_init_c
 start_aggressive_init_b
 	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
 	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-	cmp old_v_audctl		; are the values identical?
+;	cmp old_v_audctl		; are the values identical?
+
+	cmp #$FF			; always execute for the first time with this value
+old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
+
 	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
 	tay				; backup the AUDCTL value into index Y
 	bne do_ch4_a			; unconditional, start on the first known position, saving a redundant check
@@ -1904,7 +1919,7 @@ loop_aggressive_init_a
 	bne do_aggressive_init		; unconditional, AUDCTL is never going to be 0 here
 done_aggressive_init
 	ldx #TRACKS-1
-	jmp pp1a
+	jmp pp1
 do_saw_here				;* I had to move this here to save a few bytes for a BEQ, I cry a little
 	lda #$7F			; Sawtooth mode
 	bne loop_aggressive_init	; unconditional	
@@ -1919,8 +1934,8 @@ do_saw_here				;* I had to move this here to save a few bytes for a BEQ, I cry a
 SetPokey
 	IFT STEREOMODE==1		;* L1 L2 L3 L4 R1 R2 R3 R4
 	
-	ldy #$ff
-v_audctl2 equ *-1
+	ldy #0
+v_audctl equ *-1
 
 	lda trackn_audf+0+4
 	ldx trackn_audf+0
@@ -1963,26 +1978,29 @@ v_audctl2 equ *-1
 	sta $d217
 	stx $d207
 	
-	lda #$ff
-v_audctl equ *-1
+	lda #0
+v_audctl2 equ *-1
 	
 	sty $d218
 	sta $d208
 	
-	IFT FEAT_TWO_TONE
+	IFT FEAT_AGGRESSIVE_INIT
+	sty old_v_audctl
+	sta old_v_audctl2	
+	EIF
 	
+	IFT FEAT_TWO_TONE
 	lda #$03
 v_skctl equ *-1	
 	ldy #$03
 v_skctl2 equ *-1
-
 	sta $d20f	
 	sty $d21f		
 	EIF
 	
 	ELI STEREOMODE==0		;* L1 L2 L3 L4
 	
-	ldy #$ff
+	ldy #0
 v_audctl equ *-1
 	
 	lda trackn_audf+0
@@ -2004,12 +2022,14 @@ v_audctl equ *-1
 	sty $d208
 	
 	IFT FEAT_TWO_TONE
-	
 	lda #$03
 v_skctl equ *-1	
-
 	sta $d20f
 	EIF
+	
+	IFT FEAT_AGGRESSIVE_INIT
+	sty old_v_audctl 
+	EIF	
 	
 	ELI STEREOMODE==2		;* L1 R2 R3 L4
 	
