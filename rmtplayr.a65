@@ -1759,12 +1759,14 @@ no_bass16
 ;* #$40 == 1.79mhz mode, for valid channels ONLY! Normal 64khz or 15khz mode will be used otherwise.
 ;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
 
+;* OH MY GOD I KNOW WHAT I CAN DO!
+;* I CAN'T BELIEVE I WAS TOO STUPID TO REALISE IT, I WILL SAVE SO MUCH CPU NOW!
+;* I LITERALLY DON'T NEED TO EVEN CHECK WHAT CHANNEL IS USED EITHER, JUST WHAT AUDCTL BITS ARE ON!
+;* AAAAAAA
 
-;* POTENTIAL IMPROVEMENT: use reverse logic, AUDCTL first, channel number after?
-FUCK_NO	equ 0
+;* todo: fix the stereo POKEY case for this...
 
-
-	IFT FEAT_AGGRESSIVE_INIT&&FUCK_NO
+	IFT FEAT_AGGRESSIVE_INIT
 start_aggressive_init
 
 	IFT TRACKS>4			; stereo mode
@@ -1772,16 +1774,13 @@ start_aggressive_init
 	beq start_aggressive_init_d	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
 	cmp #$FF			; always execute for the first time with this value
 old_v_audctl2 equ *-1			; are the values identical?
-	beq start_aggressive_init_c	; if equal, flags won't be updated for this time, cycles won't be wasted
-	tay 				; backup the AUDCTL value into index Y
+	beq start_aggressive_init_b	; if equal, flags won't be updated for this time, cycles won't be wasted
 	bne do_aggressive_init		; unconditional
 start_aggressive_init_d
 	sta trackn_flags+4		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
 	sta trackn_flags+5
 	sta trackn_flags+6
 	sta trackn_flags+7
-start_aggressive_init_c
-	ldx #3				; since there are only 4 channels per POKEY, load the proper channel index value here
 	EIF				; endif
 	
 start_aggressive_init_b
@@ -1790,7 +1789,7 @@ start_aggressive_init_b
 	cmp #$FF			; are the values identical?
 old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
 	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
-	tay				; backup the AUDCTL value into index Y
+	tay 				; backup the AUDCTL value into index Y
 	bne do_aggressive_init		; unconditional
 start_aggressive_init_e	
 	sta trackn_flags+0		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
@@ -1798,126 +1797,56 @@ start_aggressive_init_e
 	sta trackn_flags+2
 	sta trackn_flags+3	
 	beq done_aggressive_init	; unconditional, flags won't be updated further, cycles won't be wasted
-do_aggressive_init 
-	; something
-
-done_aggressive_init
-	ldx #TRACKS-1
-	jmp pp1
-	EIF
+	bne do_aggressive_init_a	; if the 15khz bit was set, the loop continue instead
 	
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	IFT !FUCK_NO
-start_aggressive_init
-	IFT TRACKS>4			; stereo mode
-	lda v_audctl2			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
-	beq start_aggressive_init_d	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-	cmp #$FF			; always execute for the first time with this value
-old_v_audctl2 equ *-1			; OPTIMISATION: self modifiying code
-	
-	beq start_aggressive_init_c	; if equal, flags won't be updated for this time, cycles won't be wasted
-	tay 				; backup the AUDCTL value into index Y
-	bne do_ch4			; unconditional, start on the first known position, saving a redundant check
-start_aggressive_init_d
-	sta trackn_flags+4		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
-	sta trackn_flags+5
-	sta trackn_flags+6
-	sta trackn_flags+7
-start_aggressive_init_c
-	ldx #3				; since there are only 4 channels per POKEY, load the proper channel index value here
-	EIF				; endif
-start_aggressive_init_b
-	lda v_audctl			; left POKEY, if it was not initialised early, there may be 1 frame of delay, at worst
-	beq start_aggressive_init_e	; if AUDCTL = 0, zeroes will be written in the flag bytes, clearing any old data
-	cmp #$FF			; always execute for the first time with this value
-old_v_audctl equ *-1			; OPTIMISATION: self modifiying code
-
-	beq done_aggressive_init	; if equal, flags won't be updated for this time, cycles won't be wasted
-	tay				; backup the AUDCTL value into index Y
-	bne do_ch4_a			; unconditional, start on the first known position, saving a redundant check
-start_aggressive_init_e	
-	sta trackn_flags+0		; clear the instrument flags for this POKEY here, will always be 0 unconditionally
-	sta trackn_flags+1
-	sta trackn_flags+2
-	sta trackn_flags+3	
-	beq done_aggressive_init	; unconditional, flags won't be updated further, cycles won't be wasted
 do_aggressive_init 
-	IFT TRACKS>4			; stereo mode
-	cpx #4				; are we in the right POKEY channels?
-	bcc do_ch4_a			; if x is lower than 4, we are not
-	beq do_179_ch1			; if equal, process the 1.79mhz ch1 checks
-do_ch4
-	cpx #7				; channel 4?
-	beq do_join_34			; if equal, process the Join 3+4 checks
-do_ch3	
-	cpx #6				; channel 3?
-	beq do_179_ch3			; if equal, process the 1.79mhz ch3 checks
-do_ch2	
-	cpx #5				; channel 2?
-	beq do_join_12			; if equal, process the Join 1+2 checks
-	EIF				; endif, all of the Right POKEY's channel are done
-do_ch4_a
-	cpx #3				; channel 4?
-	beq do_join_34			; if equal, process the Join 3+4 checks
-do_ch3_a	
-	cpx #2				; channel 3?
-	beq do_179_ch3			; if equal, process the 1.79mhz ch3 checks
-do_ch2_a	
-	cpx #1				; channel 2?
-	beq do_join_12			; if equal, process the Join 1+2 checks
-do_179_ch1				; x being equal to 0 is unconditional here, process the 1.79mhz ch1 checks.
-	bit CH1_179
-	beq do_clock_15			; no 1.79mhz mode in channel 1, skip ahead, else, run the cycle of endless checks
-	bit JOIN_12
-	bne do_fail_here		; branch to failsafe, 16-bit volume output should not happen in this channel
-	bit CH3_179			
-	bne do_saw_here			; if 1.79mhz mode is also active in channel 3, load the Triangle/Sawtooth value, else, branch to 1.79mhz mode value	
-do_179_here
-	lda #$40 			; 1.79mhz mode
-	bne loop_aggressive_init	; unconditional	
-do_179_ch3
-	bit CH3_179
-	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
-	bit JOIN_34
-	beq do_179_here			; branch to failsafe, 16-bit volume output should not happen in this channel
-do_fail_here
-	lda #$FF			; Invalid 16-bit mode
-	bne loop_aggressive_init	; unconditional		
-do_join_34
-	bit JOIN_34
-	beq do_clock_15			; if no join, skip directly to 15khz checks
-	bit CH3_179
-	beq do_clock_15			; no 1.79mhz mode in channel 3, skip ahead to 15khz mode check
-do_join_here
-	lda #$80			; Valid 16-bit mode
-	bne loop_aggressive_init	; unconditional	
-do_join_12
-	bit JOIN_12
-	beq do_clock_15			; if no join, skip directly to 15khz checks
-	bit CH1_179
-	bne do_join_here
-do_clock_15
 	and #$01			; AND instruction here, if the 15khz mode is off, the result will always be 0, regardless of every other bits
-loop_aggressive_init
-	sta trackn_flags,x
-	dex
-	bmi done_aggressive_init	; index x has overflown, so the loop is finished
-	IFT TRACKS>4
-	cpx #3				; since there are only 4 channels per POKEY, this step is necessary in stereo mode in case it was skipped
-	beq start_aggressive_init_b	; if equal, process the remaining 4 channels, but first the proper AUDCTL value must be loaded
-	EIF
-loop_aggressive_init_a
-	tya				; fetch the AUDCTL backup before continuing into the loop
-	bne do_aggressive_init		; unconditional, AUDCTL is never going to be 0 here
+	bne start_aggressive_init_e	; write using the same block, since the value is not 0 it will come back here
+do_aggressive_init_a
+	tya				; get the backup back for the next step
+	bit CH1_179
+	bne do_179
+do_aggressive_init_b	
+	bit CH3_179
+	bne do_179_c			; skip sawtooth checks if this line was reached
 done_aggressive_init
-	ldx #TRACKS-1
-	jmp pp1
-do_saw_here				;* I had to move this here to save a few bytes for a BEQ, I cry a little
-	lda #$7F			; Sawtooth mode
-	bne loop_aggressive_init	; unconditional	
-	EIF 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	
+	jmp pp1				; there is nothing else to do, either all flags were set, or no bits matched the checks
+do_179
+	bit JOIN_12
+	bne do_join			; 16-bit ch1+2 if not equal
+	bit CH3_179
+	beq do_179_a			; sawtooth if not equal, or 1.79mhz mode in ch1 if equal
+	bit JOIN_34
+	bne do_179_a			; 16-bit ch3+4 if not equal, it will take priority over sawtooth! 
+do_saw_flag 
+	lda #$7F			; Sawtooth flag
+	sta trackn_flags+0		; ch1
+	bne do_179_d			; unconditional, go write the ch3 flag as well since it is also active
+do_179_a
+	lda #$40 			; 1.79mhz flag
+	sta trackn_flags+0		; ch1
+	bne do_aggressive_init_b	; unconditional		
+do_179_c
+	bit JOIN_34
+	bne do_join_a			; 16-bit ch3+4 if not equal, or 1.79mhz mode in ch3 if equal
+do_179_d 
+	lda #$40 			; 1.79mhz flag
+	sta trackn_flags+2		; ch3
+	bne done_aggressive_init	; unconditional	
+do_join
+	lda #$80			; Valid 16-bit mode
+	sta trackn_flags+1		; ch2
+  	lda #$FF			; Invalid 16-bit mode
+	sta trackn_flags+0		; ch1
+	bne do_aggressive_init_b	; unconditional, go check for channel 3 for 1.79mhz mode
+do_join_a
+	lda #$80			; Valid 16-bit mode
+	sta trackn_flags+3		; ch4
+	lda #$FF			; Invalid 16-bit mode
+	sta trackn_flags+2		; ch3
+	bne done_aggressive_init	; unconditional	
+	EIF	
+
 ; end of aggressive init code...
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
