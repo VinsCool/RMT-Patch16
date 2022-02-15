@@ -348,7 +348,7 @@ rmt_silence
 	ldy #3
 	sty $d20f
 	sty $d21f
-	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER	;* potential improvement: setting this elsewhere so the first frame of play would not be overwritten if defined early
+	IFT FEAT_IS_TRACKER 
 	sty v_skctl
 	sty v_skctl2
 	EIF
@@ -363,7 +363,7 @@ si1
 	sta $d208
 	ldy #3
 	sty $d20f
-	IFT FEAT_TWO_TONE&&FEAT_IS_TRACKER	;* potential improvement: setting this elsewhere so the first frame of play would not be overwritten if defined early
+	IFT FEAT_IS_TRACKER 
 	sty v_skctl 
 	EIF
 	ldy #8
@@ -373,15 +373,13 @@ si1
 	bpl si1
 	EIF
 	
-	IFT FEAT_IS_TRACKER&&FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK&&FEAT_AGGRESSIVE_INIT	
-	lda #<frqtabsawtooth_ch1	; reset the sawtooth pointers
+	IFT FEAT_IS_TRACKER 		; reset the tables pointers 
+	lda #<frqtabsawtooth_ch1	
 	sta saw_ch1
 	lda #<frqtabsawtooth_ch3
-	sta saw_ch3		
-	EIF
-	IFT FEAT_IS_TRACKER&&FEAT_FULL_16BIT&&FEAT_BASS16&&FEAT_FULL_TABLES_HIJACK&&FEAT_AGGRESSIVE_INIT 
+	sta saw_ch3	
 	lda #$0A			
-	sta bass16_pointer		; PERMANENTLY change the value until a new CMD6 value is read
+	sta bass16_pointer 
 	EIF	
 
 	IFT FEAT_INSTRSPEED==0
@@ -402,7 +400,6 @@ GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 GetSongLine
 	ldx #0
 	stx v_abeat			; set the pattern row to 0 for the new songline... This could be exploited with an effect command related to premature pattern end, or pattern goto...
-	
 nn0
 nn0_a
         IFT FEAT_IS_VISUALP		; RMT Visualiser hack for displaying the songline number, this is 100% useless but cool to have nonetheless.
@@ -748,12 +745,8 @@ v_maxtracklen equ *-1
 	jmp GetTrackLine
 p2o3
 	jmp GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
-	
-;go_ppnext				;* OPTIMISATION: this is no longer needed, use a JMP directly elsewhere
-;	jmp ppnext
 
 rmt_p3	
-
 	ldx #TRACKS-1
 	
 ;* combining the aggressive init and rmt_p3 in 1 thing, this is now an even more aggressive approach! 
@@ -832,9 +825,8 @@ pp0_a
 
 pp1
 	lda trackn_instrhb,x
-	bne pp1_a			; continue if not equal, the channel will be skipped otherwise
-;	beq go_ppnext			;* OPTIMISATION: skip a BEQ to proceed a JMP again, BNE and JMP directly if equal instead
-	jmp ppnext
+	bne pp1_a			; continue if not equal 
+	jmp ppnext			; skip this channel and process the next one
 	
 pp1_a					; copying the values to the zeropage to make things faster... but not all bytes need this...
 	lda trackn_command,x
@@ -843,7 +835,6 @@ pp1_a					; copying the values to the zeropage to make things faster... but not 
 	sta reg3
 	
 pp2
-;	lda reg1			;* OPTIMISATION: this is no longer necessary, use the value directly instead
 	lda trackn_volumeenvelope,x
 	IFT TRACKS>4
 	cpx #4
@@ -1071,11 +1062,6 @@ ei4
 	EIF
 	IFT FEAT_COMMAND1||FEAT_COMMAND2||FEAT_COMMAND3||FEAT_COMMAND4||FEAT_COMMAND5||FEAT_COMMAND6||FEAT_COMMAND7	
 	lda reg2
-	
-;	IFT FEAT_FILTER
-;	sta trackn_command,x	;* OPTIMISATION: this is no longer necessary
-;	EIF
-
 	and #$70
 	IFT 1==[FEAT_COMMAND1+FEAT_COMMAND2+FEAT_COMMAND3+FEAT_COMMAND4+FEAT_COMMAND5+FEAT_COMMAND6+FEAT_COMMAND7]	
 	beq cmd0
@@ -1112,11 +1098,6 @@ jmx	bcc *
 	jmp cmd7
 	EIF
 	EIF
-;	ELS
-;	IFT FEAT_FILTER
-;	lda reg2
-;	sta trackn_command,x 	;* OPTIMISATION: this is no longer necessary
-;	EIF
 	EIF
 	
 ;* end of instruments effects code...
@@ -1234,13 +1215,12 @@ cmd6b
 	lda trackn_note,x
 	jmp cmd0a
 	EIF
+	
 cmd7
 	IFT FEAT_COMMAND7
-	
 	IFT FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
 	IFT FEAT_TWO_TONE
 	lda reg3
-	bpl cmd7f		; failsafe, quick and immediate, there will be no Two-Tone toggle, or volume only output, since the command was most likely used to set the AUDCTL bits
 	cmp #$FD		; #$FD toggles Two-Tone off
 	bcc cmd7f		; no values will match if less than this, failsafe in case the BPL above didn't catch it
 	beq cmd7b		; turn off the Two-Tone Filter if equal
@@ -1266,10 +1246,8 @@ cmd7d
 cmd7e
 	sta v_skctl		; SKCTL, Left POKEY
 	ELS
-	
 	IFT FEAT_COMMAND7VOLUMEONLY	
 	lda reg3
-	bpl cmd7f		; failsafe, quick and immediate, there will be no Two-Tone toggle, or volume only output, since the command was most likely used to set the AUDCTL bits
 	cmp #$FF
 	beq cmd7a		; set volume only mode if equal
 	EIF
@@ -1278,21 +1256,18 @@ cmd7f
 	lda trackn_note,x	; this is the expected variable in memory
 	jmp cmd0a 
 cmd7a
-
 	IFT FEAT_COMMAND7VOLUMEONLY
 	lda trackn_audc,x
 	ora #$f0
 	sta trackn_audc,x
-	lda trackn_note,x
-	jmp cmd0a
+	bne cmd7f		; unconditional
 	EIF
-	
 	ELS
 	lda trackn_note,x	; this is the expected variable in memory
 	jmp cmd0a 
 	EIF
-	
 	EIF
+	
 cmd0
 	lda trackn_note,x
 	clc
@@ -1444,6 +1419,7 @@ cmd0b3
 	adc frqaddcmd2
 	EIF
 	EIF
+	
 cmd0c
 	sta trackn_audf,x
 	
@@ -1497,23 +1473,16 @@ pp11
 	
 ;* part of mainloop code... this is an extra step added for the purpose of clearning the memory from 16-bit or Sawtooth addresses when unused.
 
-	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
-	ldy #0			; reset the values to 0, until the next player call since they're no longer needed for checks
-	
-	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
-;	lda sawtoothtables+1
-;	beq pp11a		; sawtooth not active
-;	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
-				;* OPTIMISATION: trying to help it a bit... this needs a much better fix...
+	IFT FEAT_FULL_SAWTOOTH||FEAT_FULL_16BIT||FEAT_BASS16
+	ldy #0			; reset the values to 0, since they're no longer needed for checks
+	IFT FEAT_FULL_SAWTOOTH
 	sty sawtoothtables
 	sty sawtoothtables+1
 	EIF
 pp11a
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	lda pointer16bitlo+1
-	beq ppnext		; 16-bit mode not active
-;	lda #0			; reset the values to 0, until the next player call since they're no longer needed for checks
-
+	beq ppnext		; 16-bit mode not active, no overwrite
 	sty pointer16bitlo
 	sty pointer16bitlo+1
 	dex			;* skip the next channel since it was updated early!!
@@ -1611,18 +1580,10 @@ qs3
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;	
 	
-;* return of instrument speed code here... I wonder if there may be a way to exploit this?
+;* end of mainloop code, hit that RTS and that's it!
 	
-rmt_p5		;* OPTIMISATION: seems like this was not necessary, end directly with a RTS
+rmt_p5	
 	rts 
-	
-;	IFT FEAT_INSTRSPEED==0||FEAT_INSTRSPEED>1
-;	lda #$ff
-;v_ainstrspeed equ *-1
-;	ELS
-;	lda #1
-;	EIF
-;	rts
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 
@@ -1634,8 +1595,7 @@ do_sawtooth
 	bpl hijack_sawtooth_done	; AUTOFILTER command is off, skip overwriting the other things	
 	IFT FEAT_FILTER
 	eor #$80			; inverts the AUTOFILTER bit, so it does not overwrite things later
-;	sta reg2			; store back to reg2 for later
-	sta trackn_command,x		;* OPTIMISATION: overwrite the command byte until the AUTOFILTER code since things where done early
+	sta trackn_command,x		; overwrite the command byte before the AUTOFILTER code since things where done early
 	EIF
 	lda #4				; high pass filter, CH1+3
 	IFT TRACKS>4			; stereo mode
@@ -1873,7 +1833,6 @@ do_join_a
 SetPokey
 	ldy #0
 v_audctl equ *-1			; left POKEY AUDCTL is loaded as the very first thing, for all STEREOMODE variations
-
 	IFT STEREOMODE==1		;* L1 L2 L3 L4 R1 R2 R3 R4
 	lda trackn_audf+0+4
 	ldx trackn_audf+0
@@ -1911,7 +1870,6 @@ v_audctl equ *-1			; left POKEY AUDCTL is loaded as the very first thing, for al
 v_audctl2 equ *-1
 	sty $d208
 	sta $d218
-		
 	IFT FEAT_TWO_TONE
 	lda #$03
 v_skctl equ *-1	
@@ -1920,7 +1878,6 @@ v_skctl2 equ *-1
 	sta $d20f	
 	sty $d21f		
 	EIF
-	
 	ELI STEREOMODE==0		;* L1 L2 L3 L4
 	lda trackn_audf+0
 	ldx trackn_audc+0
@@ -1939,13 +1896,11 @@ v_skctl2 equ *-1
 	sta $d200+6
 	stx $d201+6
 	sty $d208
-	
 	IFT FEAT_TWO_TONE
 	lda #$03
 v_skctl equ *-1	
 	sta $d20f
 	EIF	
-	
 	ELI STEREOMODE==2		;* L1 R2 R3 L4
 	lda trackn_audf+0
 	ldx trackn_audc+0
@@ -1968,14 +1923,12 @@ v_skctl equ *-1
 	sta $d210+6
 	sty $d218
 	sty $d208
-	
 	IFT FEAT_TWO_TONE
 	lda #$03
 v_skctl equ *-1	
 	sta $d20f
 	sta $d21f
 	EIF
-	
 	ELI STEREOMODE==3		;* L1 L2 R3 R4
 	lda trackn_audf+0
 	ldx trackn_audc+0
@@ -1997,14 +1950,12 @@ v_skctl equ *-1
 	sta $d200+6
 	sty $d218
 	sty $d208
-	
 	IFT FEAT_TWO_TONE
 	lda #$03
 v_skctl equ *-1	
 	sta $d20f
 	sta $d21f
 	EIF
-	
 	EIF
 	rts
 	
