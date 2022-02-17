@@ -820,7 +820,7 @@ pp0					; get AUDCTL as early as possible, properly this time!
 	
 pp0_a
 	IFT FEAT_AGGRESSIVE_INIT 
-	jmp start_aggressive_init	; a LOT to be desired there... will be reworked in a much better way later
+	jmp do_aggressive_init	
 	EIF 	
 
 pp1
@@ -1734,6 +1734,63 @@ bass16_pointer equ *-1
 ;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
 
 	IFT FEAT_AGGRESSIVE_INIT
+do_aggressive_init
+	IFT TRACKS>4
+start_aggressive_init_s
+	lda v_audctl2			; left POKEY
+	tay 				; backup the AUDCTL first 
+	and #$01			; 15khz mode? is off, will always be 0 or 1, regardless of every other bits
+	sta trackn_flags+4+0		; write the first instrument flags for this POKEY here
+	sta trackn_flags+4+1
+	sta trackn_flags+4+2
+	sta trackn_flags+4+3	
+	tya				; fetch the AUDCTL backup
+	bne ch1_179_checks_s		; if AUDCTL is not 0, check the bits, else if it is 0, there is nothing to check 
+	beq start_aggressive_init	; flags were all set 
+ch1_179_checks_s
+	bit CH1_179
+	beq ch3_179_checks_s		; no 1.79mhz mode in ch1, skip
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	bit JOIN_12
+	beq do_ch1_179_flag_s
+do_ch12_16bit_flag_s			; ch1+2 16-bit flags
+	lda #$80			; Valid 16-bit mode
+	sta trackn_flags+4+1		; ch2
+  	lda #$FF			; Invalid 16-bit mode
+	bne ch1_flag_s 
+	EIF
+do_ch1_179_flag_s			; ch1 1.79mhz flag
+	lda #$40			; normal 1.79mhz mode
+ch1_flag_s
+	sta trackn_flags+4+0		; ch1
+transition_s				; transition to ch3 and ch4, get the audctl backup first
+	tya
+ch3_179_checks_s 
+	bit CH3_179
+	beq start_aggressive_init 	; no 1.79mhz mode in ch3, skip
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	bit JOIN_34
+	beq do_ch3_179_flag_s
+do_ch34_16bit_flag_s			; ch3+4 16-bit flags	
+	lda #$80			; Valid 16-bit mode
+	sta trackn_flags+4+3		; ch4
+	lda #$FF			; Invalid 16-bit mode
+	bne ch3_flag_s
+	EIF
+do_ch3_179_flag_s 			; ch3 1.79mhz flag
+	lda #$40			; normal 1.79mhz mode
+	IFT FEAT_FULL_SAWTOOTH
+	cmp trackn_flags+4+0		; is the 1.79mhz flag also set in ch1? 
+	bne ch3_flag_s			; BNE will also occur once the sawtooth flag is set!
+do_sawtooth_flag_s			; pulling a sneaky one here ;)
+	lda #$7F			; Sawtooth flag
+	sta trackn_flags+4+0		; ch1
+	bne do_ch3_179_flag_s		; hehehe :D
+	EIF
+ch3_flag_s
+	sta trackn_flags+4+2		; ch3
+	EIF
+	
 start_aggressive_init 
 	lda v_audctl			; left POKEY
 	tay 				; backup the AUDCTL first 
@@ -1743,11 +1800,9 @@ start_aggressive_init
 	sta trackn_flags+2
 	sta trackn_flags+3	
 	tya				; fetch the AUDCTL backup
-	bne do_aggressive_init		; if AUDCTL is not 0, check the bits, else if it is 0, there is nothing to check
+	bne ch1_179_checks		; if AUDCTL is not 0, check the bits, else if it is 0, there is nothing to check
 done_aggressive_init	
 	jmp pp1				; flags were all set 
-do_aggressive_init
-	
 ch1_179_checks 
 	bit CH1_179
 	beq ch3_179_checks		; no 1.79mhz mode in ch1, skip
