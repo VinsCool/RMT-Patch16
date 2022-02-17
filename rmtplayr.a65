@@ -876,21 +876,37 @@ pp2s
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 ;* start of the tuning tables code... Should be much faster and efficient this time...
+;* reg1 could be used for a temporary variable now...
 
 do_tuning_tables
 	lda reg2		; Distortion and Command
 	and #$0E		; Only keep the Distortion bits
 	tay			; will be used for the tables MSB pointer, and the Distortion itself	
-
+	IFT FEAT_BASS16
+	cpy #$06		; Distortion 6?
+	bne check_flags		; no check if not equal
+	lda tmp			; volume backup
+	beq check_flags		; no check if equal
+	jmp do_bass16		;* process the BASS16 code there
+	EIF
 check_flags
 	lda trackn_flags,x	; flags previously set during the aggressive rmt_p3 initialisation, they are unconditional
 	beq store_tables_lsb	; #$00 = 64khz flag, unconditional
 	bmi check_valid_16bit	; #$80 = Valid 16-bit flag, #$FF = Invalid 16-bit flag, unconditional
 	cmp #$40		; #$40 = Normal 1.79mhz flag
 	beq store_tables_lsb	; the LSB pointer is also the flag value
-	
-; 	bcs check_sawtooth	; to fix later... 
-
+	IFT FEAT_FULL_SAWTOOTH
+	bcc check_15khz		; below #$40
+	cpy #$0A		; Distortion A?
+	beq go_saw		; if equal, Sawtooth!
+no_saw
+	lda #$40		; normal 1.79mhz flag
+	bne store_tables_lsb	; the LSB pointer is also the flag value
+go_saw
+	lda tmp			; volume backup
+	beq no_saw		; no sawtooth at volume 0!
+	jmp do_sawtooth		;* process the Sawtooth code there
+	EIF
 check_15khz			; #$01 = 15khz flag, unconditional
 	cpy #$0C		; are we in Distortion C/E?
 	bcs check_15khz_b	; if equal or above, use the Distortion C 15khz table, else, use the Distortion A 15khz table
@@ -902,16 +918,18 @@ check_15khz_c
 	sta nr
 	lda #>PAGE_EXTRA_0	; tables MSB pointer, it's the same one regardless of the table used
 	bne store_tables_lsb_a	; unconditional 
-	
+	IFT FEAT_FULL_16BIT
 check_valid_16bit
 	cmp #$FF		; is the Invalid flag set?
-	bne valid_16bit		; if not equal, everything is fine
-hellno				; Invalid 16-bit flag!
-	lda #0			; clear the channel values
-	sta trackn_audc,x
-	sta trackn_audf,x
-	jmp ppnext 		; skip this channel entirely 
+	beq hellno		; if equal, everything is not fine!
 valid_16bit 			; Valid 16-bit flag!
+	IFT FEAT_BASS16
+	cpy #$06		; Distortion 6?
+	bne valid_16bit_a	; normal 16-bit mode
+hellyes
+	jmp process_bass16	; BASS16 happens even with volume 0!
+	EIF
+valid_16bit_a
 	sta nr			; 16-bit hi LSB
 	lda #$C0		; 64 bytes further for the 16-bit LSB table
 	sta pointer16bitlo  	; 16-bit lo LSB
@@ -920,7 +938,14 @@ valid_16bit 			; Valid 16-bit flag!
 	lda TABLES_MSB,y
 	sta pointer16bitlo+1	; 16-bit lo MSB
 	bne store_tables_lsb_a	; unconditional, finish in the middle of the 64khz/1.79mhz branch
-	
+	EIF
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+hellno				; Invalid 16-bit flag!
+	lda #0			; clear the channel values
+	sta trackn_audc,x
+	sta trackn_audf,x
+	jmp ppnext 		; skip this channel entirely 
+	EIF
 store_tables_lsb
 	sta nr			; tables LSB pointer, divided in slices of 64 bytes each
 	lda TABLES_MSB,y
@@ -1563,8 +1588,8 @@ rmt_p5
 
 ;* start of Sawtooth code...
 
-do_sawtooth
 	IFT FEAT_FULL_SAWTOOTH
+do_sawtooth
 	lda reg2
 	bpl hijack_sawtooth_done	; AUTOFILTER command is off, skip overwriting the other things	
 	IFT FEAT_FILTER
@@ -1622,8 +1647,17 @@ hijack_sawtooth_done_a
 	
 ;* start of BASS16 code...
 
-do_bass16	
-	IFT FEAT_BASS16		
+	IFT FEAT_BASS16	
+do_bass16 
+	lda trackn_flags,x
+	bpl do_bass16_b			; no 16-bit flags, check the channel index
+do_bass16_a
+	cmp #$FF			; invalid flag?
+	bne process_bass16		; Valid 16-bit flag if not equal, skip ahead!
+	jmp hellno			; Invalid 16-bit flag if equal, jump to failsafe!
+no_bass16
+	jmp check_flags			; no valid channel index, continue like normal there
+do_bass16_b
 	IFT TRACKS>4			; stereo mode
 	cpx #4				; are we in the right POKEY channels?
 	bcc test_bass16_ch4_mono	; if x is lower than 4, we are not
@@ -1652,8 +1686,8 @@ test_bass16_ch2_mono
 	lda #$50			; JOIN_12 + CH1_179 bits 
 bass16_audctl_done_mono	
 	ora v_audctl
-	sta v_audctl	
-process_bass16	
+	sta v_audctl 
+process_bass16 
 	IFT FEAT_COMMAND6&&FEAT_FULL_16BIT
 	lda reg2			; Distortion and Commands
 	and #$70			; leave only the Commands bits
@@ -1669,10 +1703,8 @@ process_bass16_a
 	ldy #$0A			; Distortion A
 bass16_pointer equ *-1
 	lda #$80
-	jmp valid_16bit			; process the remaining of the 16-bit code from there
-no_bass16
-	jmp check_flags			; abort the BASS16 code immediately if the execution landed here
-	ELS	
+	jmp valid_16bit_a		; process the remaining of the 16-bit code from there
+	ELS
 	lda #<frqtabpure_hi
 	sta nr
 	lda #<frqtabpure_lo
@@ -1704,7 +1736,7 @@ no_bass16
 ;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
 
 ;* todo: fix the stereo POKEY case for this... 
-;* improvement: cleaner approach, do sawtooth checks elsewhere...
+;* seems to be good enough now...
 
 	IFT FEAT_AGGRESSIVE_INIT
 start_aggressive_init 
@@ -1725,6 +1757,8 @@ do_aggressive_init
 ch1_179_checks 
 	bit CH1_179
 	beq ch3_179_checks		; no 1.79mhz mode in ch1, skip
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_12
 	beq do_ch1_179_flag
 do_ch12_16bit_flag			; ch1+2 16-bit flags
@@ -1732,6 +1766,8 @@ do_ch12_16bit_flag			; ch1+2 16-bit flags
 	sta trackn_flags+1		; ch2
   	lda #$FF			; Invalid 16-bit mode
 	bne ch1_flag 
+	EIF
+	
 do_ch1_179_flag				; ch1 1.79mhz flag
 	lda #$40			; normal 1.79mhz mode
 ch1_flag
@@ -1741,6 +1777,8 @@ transition				; transition to ch3 and ch4, get the audctl backup first
 ch3_179_checks 
 	bit CH3_179
 	beq done_aggressive_init 	; no 1.79mhz mode in ch3, skip
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_34
 	beq do_ch3_179_flag
 do_ch34_16bit_flag			; ch3+4 16-bit flags	
@@ -1748,8 +1786,20 @@ do_ch34_16bit_flag			; ch3+4 16-bit flags
 	sta trackn_flags+3		; ch4
 	lda #$FF			; Invalid 16-bit mode
 	bne ch3_flag
+	EIF
+	
 do_ch3_179_flag 			; ch3 1.79mhz flag
 	lda #$40			; normal 1.79mhz mode
+	
+	IFT FEAT_FULL_SAWTOOTH
+	cmp trackn_flags+0		; is the 1.79mhz flag also set in ch1? 
+	bne ch3_flag			; BNE will also occur once the sawtooth flag is set!
+do_sawtooth_flag			; pulling a sneaky one here ;)
+	lda #$7F			; Sawtooth flag
+	sta trackn_flags+0		; ch1
+	bne do_ch3_179_flag		; hehehe :D
+	EIF
+	
 ch3_flag
 	sta trackn_flags+2		; ch3
 	bne done_aggressive_init	; finished
