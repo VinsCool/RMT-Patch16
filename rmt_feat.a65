@@ -76,7 +76,7 @@ FEAT_FULL_SAWTOOTH	equ 1
 
 ;* New experimental approach, even more aggressive than FEAT_GET_AUDCTL_EARLY and FEAT_FULL_TABLES_HIJACK combined!
 
-FEAT_AGGRESSIVE_INIT	equ 1
+FEAT_AGGRESSIVE_INIT	equ 0
 
 ;* Manual tuning table loaded from instruments, this is experimental code, do not use unless you have a reason to try it out!
 
