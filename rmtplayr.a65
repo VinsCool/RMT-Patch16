@@ -1107,14 +1107,11 @@ jmx	bcc *
 	
 cmd1
 	IFT FEAT_COMMAND1
-	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	lda pointer16bitlo+1
 	beq cmd1a		; 16-bit mode not active
 	lda #0			; force the LSB channel to have empty values as a failsafe
-	sta trackn_audc-1,x
 	sta trackn_audf-1,x
-	EIF
 	EIF
 cmd1a	
 	lda reg3
@@ -1188,26 +1185,11 @@ cmd5a
 	jmp cmd0a
 	EIF
 cmd6
-	IFT FEAT_COMMAND6&&FEAT_FILTER
-	
-	IFT FEAT_FULL_TABLES_HIJACK||FEAT_FULL_16BIT||FEAT_BASS16
-	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
-	lda sawtoothtables+1
-	bne cmd6b		; sawtooth active, failsafe
-	EIF
-	IFT FEAT_FULL_16BIT||FEAT_BASS16
-	lda pointer16bitlo+1
-	bne cmd6b		; 16-bit mode active, failsafe
-	EIF
-	EIF
-	
-cmd6a	
+	IFT FEAT_COMMAND6&&FEAT_FILTER	
 	lda reg3
 	clc
 	adc trackn_filter,x
 	sta trackn_filter,x
-	
-cmd6b
 	lda trackn_note,x
 	jmp cmd0a
 	ELI FEAT_COMMAND6
@@ -1426,7 +1408,7 @@ cmd0c
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
-;* start of Portamento code... This is currently not properly compatible with 16-bit mode, unfortunately.
+;* start of Portamento code... This is currently not properly compatible with 16-bit mode or Sawtooth, unfortunately.
 	
 pp9
 	IFT FEAT_PORTAMENTO
