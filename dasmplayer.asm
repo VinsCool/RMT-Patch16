@@ -43,7 +43,7 @@ STEREOMODE	equ 0
 
 ; screen line for synchronization, important to set with a good value to get smooth execution
 
-VLINE		equ 2		; 16 is the default according to Raster's example player
+VLINE		equ 7		; 16 is the default according to Raster's example player
 
 ; rasterbar colour
 
@@ -155,8 +155,6 @@ module_init
 	lda #STARTLINE		; starting song line 0-255 to A reg
 	jsr rmt_init		; Init returns instrument speed (1..4 => from 1/screen to 4/screen)
 	tay			; use the instrument speed as an offset
-;	ldy #4			; test, forcing a value directly
-;	sty v_instrspeed	; test, manually setting this value from here also requires this one to fix the playback speed
 adjust_check
 	cpy #5
 	beq adjust_5vbi
@@ -229,8 +227,8 @@ region_done
 	mwa #vbi VVBLKI		; write our own vbi address to it	
 	mva #$40 NMIEN		; enable vbi interrupts
 wait_sync
-	lda VCOUNT		; current scanline, manipulated this way stabilises the timing
-	cmp #2			; is it 2?
+	lda VCOUNT		; current scanline 
+	cmp #VLINE		; will stabilise the timing if equal
 	bne wait_sync		; nope, repeat
 
 ; main loop, code runs from here after initialisation
@@ -268,20 +266,16 @@ play_loop
 	sty COLBK		; background colour
 	sty COLPF2		; playfield colour 2
 	jsr rmt_play		; setpokey + 1 play
-;	inc loop+1		; cheap gradient effect
 	ldy #$00		; black colour value
 	sty WSYNC		; horizontal sync
 	sty COLBK		; background colour
-	sty COLPF2		; playfield colour 2	
-	
+	sty COLPF2		; playfield colour 2 
 	beq loop                ; unconditional
 
 ; VBI loop
 
 vbi
 	sta WSYNC		; horizontal sync, so we're always on the exact same spot
-;	lda #RASTERBAR
-;	sta loop+1		; reset the rasterbar colour every VBI
 	ldx <line_4		; line 4 of text
 	lda SKSTAT		; Serial Port Status
 	and #$08		; SHIFT key being held?
