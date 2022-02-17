@@ -1730,61 +1730,55 @@ no_bass16
 ;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
 
 ;* todo: fix the stereo POKEY case for this... 
+;* improvement: cleaner approach, do sawtooth checks elsewhere...
 
 	IFT FEAT_AGGRESSIVE_INIT
 start_aggressive_init 
 	lda v_audctl			; left POKEY
-	tay 				; backup the AUDCTL first
-do_aggressive_init 
+	tay 				; backup the AUDCTL first 
 	and #$01			; 15khz mode? is off, will always be 0 or 1, regardless of every other bits
 	sta trackn_flags+0		; write the first instrument flags for this POKEY here
 	sta trackn_flags+1
 	sta trackn_flags+2
 	sta trackn_flags+3	
 	tya				; fetch the AUDCTL backup
-do_aggressive_init_a			; 1.79mhz ch1 checks 
+	bne do_aggressive_init		; if AUDCTL is not 0, check the bits, else if it is 0, there is nothing to check
+done_aggressive_init	
+	jmp pp1				; flags were all set 
+
+do_aggressive_init
+	
+ch1_179_checks 
 	bit CH1_179
-	beq do_aggressive_init_b
+	beq ch3_179_checks		; no 1.79mhz mode in ch1, skip
 	bit JOIN_12
-	beq do_aggressive_init_aaa
-do_aggressive_init_c			; 16-bit checks ch1+2, take priority over 1.79mhz
+	beq do_ch1_179_flag
+do_ch12_16bit_flag			; ch1+2 16-bit flags
 	lda #$80			; Valid 16-bit mode
 	sta trackn_flags+1		; ch2
   	lda #$FF			; Invalid 16-bit mode
+	bne ch1_flag 
+do_ch1_179_flag				; ch1 1.79mhz flag
+	lda #$40			; normal 1.79mhz mode
+ch1_flag
 	sta trackn_flags+0		; ch1
-	bne do_aggressive_init_a_3
-do_aggressive_init_aaa
-	bit CH3_179
-	beq do_aggressive_init_a_1
-	bit JOIN_34
-	bne do_aggressive_init_a_1	; 16-bit takes priority over sawtooth!
-do_aggressive_init_a_0			; set the sawtooth flag here
-	lda #$7F
-	sta trackn_flags+0
-	bne do_aggressive_init_b_1	; process ch3 immediately
-do_aggressive_init_a_1			; set the 1.79mhz flag in ch1 here
-	lda #$40
-do_aggressive_init_a_2
-	sta trackn_flags+0
-do_aggressive_init_a_3
+transition				; transition to ch3 and ch4, get the audctl backup first
 	tya
-do_aggressive_init_b			; 1.79mhz ch3 checks
+ch3_179_checks 
 	bit CH3_179
-	beq done_aggressive_init 
+	beq done_aggressive_init 	; no 1.79mhz mode in ch3, skip
 	bit JOIN_34
-	beq do_aggressive_init_b_1
-do_aggressive_init_d			; 16-bit checks ch3+4, take priority over 1.79mhz	
+	beq do_ch3_179_flag
+do_ch34_16bit_flag			; ch3+4 16-bit flags	
 	lda #$80			; Valid 16-bit mode
 	sta trackn_flags+3		; ch4
 	lda #$FF			; Invalid 16-bit mode
+	bne ch3_flag
+do_ch3_179_flag 			; ch3 1.79mhz flag
+	lda #$40			; normal 1.79mhz mode
+ch3_flag
 	sta trackn_flags+2		; ch3
-	bne done_aggressive_init
-do_aggressive_init_b_1 			; set the 1.79mhz flag in ch3 here 
-	lda #$40
-do_aggressive_init_b_2
-	sta trackn_flags+2
-done_aggressive_init	
-	jmp pp1				; flags were all set 
+	bne done_aggressive_init	; finished
 	EIF
 
 ; end of aggressive init code...
