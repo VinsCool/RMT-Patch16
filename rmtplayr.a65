@@ -857,18 +857,32 @@ pp2s
 
 	IFT FEAT_TABLE_MANUAL		; Manual tuning table loaded from instruments, this is currently not fully implemented into RMT...
 	lda trackn_pointertable,x
-	beq pp2sno			; a value of 0 means no pointer will be used, thus, can be skipped immediately
+	beq do_tuning_tables		; a value of 0 means no pointer will be used, thus, can be skipped immediately
 	tay
 	and #$0F
 	ora #$B0
 	sta nr+1			; Bx00, where x is manipulated
+;* hack for Reverse-16 proof of concept, won't be used later		
+	lda #0
+	cpx #1
+	bne stayzero
+;* end hack
 	tya
 	and #$C0
+stayzero	
 	sta nr				; B0x0, where is manipulated
+;* hack for Reverse-16 proof of concept, won't be used later	 
+	cpx #0
+	bne getdist
+	lda tmp
+	ora #$C0	
+	jmp store_tables_lsb_c 
+;* end of Reverse-16 hack, what is below should always be the same 
+getdist	
 	lda reg2
 	and #$0e
 	tay
-	jmp pp2syes
+	jmp store_tables_lsb_b
 	EIF
 	
 ;* end of manual tables code...
