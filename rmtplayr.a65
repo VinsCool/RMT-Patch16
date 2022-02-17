@@ -892,7 +892,9 @@ do_tuning_tables
 check_flags
 	lda trackn_flags,x	; flags previously set during the aggressive rmt_p3 initialisation, they are unconditional
 	beq store_tables_lsb	; #$00 = 64khz flag, unconditional
+	IFT FEAT_FULL_16BIT 
 	bmi check_valid_16bit	; #$80 = Valid 16-bit flag, #$FF = Invalid 16-bit flag, unconditional
+	EIF
 	cmp #$40		; #$40 = Normal 1.79mhz flag
 	beq store_tables_lsb	; the LSB pointer is also the flag value
 	IFT FEAT_FULL_SAWTOOTH
@@ -1717,9 +1719,6 @@ bass16_pointer equ *-1
 ;* #$40 == 1.79mhz mode, for valid channels ONLY! Normal 64khz or 15khz mode will be used otherwise.
 ;* #$7F == Sawtooth mode, for valid channels ONLY! A few additional tests in the tables routine will be necessary. Fallback to 1.79mhz mode otherwise.
 
-;* todo: fix the stereo POKEY case for this... 
-;* seems to be good enough now...
-
 	IFT FEAT_AGGRESSIVE_INIT
 start_aggressive_init 
 	lda v_audctl			; left POKEY
@@ -1733,13 +1732,11 @@ start_aggressive_init
 	bne do_aggressive_init		; if AUDCTL is not 0, check the bits, else if it is 0, there is nothing to check
 done_aggressive_init	
 	jmp pp1				; flags were all set 
-
 do_aggressive_init
 	
 ch1_179_checks 
 	bit CH1_179
 	beq ch3_179_checks		; no 1.79mhz mode in ch1, skip
-	
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_12
 	beq do_ch1_179_flag
@@ -1749,7 +1746,6 @@ do_ch12_16bit_flag			; ch1+2 16-bit flags
   	lda #$FF			; Invalid 16-bit mode
 	bne ch1_flag 
 	EIF
-	
 do_ch1_179_flag				; ch1 1.79mhz flag
 	lda #$40			; normal 1.79mhz mode
 ch1_flag
@@ -1759,7 +1755,6 @@ transition				; transition to ch3 and ch4, get the audctl backup first
 ch3_179_checks 
 	bit CH3_179
 	beq done_aggressive_init 	; no 1.79mhz mode in ch3, skip
-	
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	bit JOIN_34
 	beq do_ch3_179_flag
@@ -1769,10 +1764,8 @@ do_ch34_16bit_flag			; ch3+4 16-bit flags
 	lda #$FF			; Invalid 16-bit mode
 	bne ch3_flag
 	EIF
-	
 do_ch3_179_flag 			; ch3 1.79mhz flag
 	lda #$40			; normal 1.79mhz mode
-	
 	IFT FEAT_FULL_SAWTOOTH
 	cmp trackn_flags+0		; is the 1.79mhz flag also set in ch1? 
 	bne ch3_flag			; BNE will also occur once the sawtooth flag is set!
@@ -1781,7 +1774,6 @@ do_sawtooth_flag			; pulling a sneaky one here ;)
 	sta trackn_flags+0		; ch1
 	bne do_ch3_179_flag		; hehehe :D
 	EIF
-	
 ch3_flag
 	sta trackn_flags+2		; ch3
 	bne done_aggressive_init	; finished
