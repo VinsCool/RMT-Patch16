@@ -175,7 +175,6 @@ HPF_CH2	dta $02	; bit 1
 CLOCK15	dta $01	; bit 0
 	EIF	
 	
-	IFT FEAT_FULL_TABLES_HIJACK
 TABLES_MSB
 DISTORTIONS equ *+1
 	dta >PAGE_DISTORTION_A,$00
@@ -186,7 +185,6 @@ DISTORTIONS equ *+1
 	dta >PAGE_DISTORTION_A,$A0
 	dta >PAGE_DISTORTION_C,$C0
 	dta >PAGE_DISTORTION_E,$C0
-	EIF
 	
 	IFT FEAT_EFFECTVIBRATO
 vibtabbeg 
@@ -1221,7 +1219,7 @@ cmd6
 	
 cmd7
 	IFT FEAT_COMMAND7
-	IFT FEAT_COMMAND7SETNOTE||FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_TWO_TONE||FEAT_VOLUME_ONLY
 	IFT FEAT_TWO_TONE
 	lda reg3
 	cmp #$FD		; #$FD toggles Two-Tone off
@@ -1229,7 +1227,7 @@ cmd7
 	beq cmd7b		; turn off the Two-Tone Filter if equal
 	cmp #$FE		; #$FE toggles Two-Tone on
 	beq cmd7c		; turn on the Two-Tone Filter if equal
-	IFT FEAT_COMMAND7VOLUMEONLY	
+	IFT FEAT_VOLUME_ONLY	
 	bne cmd7a		; #$FF sets volume only mode, and will always be that value here, unconditional branching
 	ELS
 	bne cmd7f		; skip ahead, and don't set volume only mode either
@@ -1249,7 +1247,7 @@ cmd7d
 cmd7e
 	sta v_skctl		; SKCTL, Left POKEY
 	ELS
-	IFT FEAT_COMMAND7VOLUMEONLY	
+	IFT FEAT_VOLUME_ONLY	
 	lda reg3
 	cmp #$FF
 	beq cmd7a		; set volume only mode if equal
@@ -1259,7 +1257,7 @@ cmd7f
 	lda trackn_note,x	; this is the expected variable in memory
 	jmp cmd0a 
 cmd7a
-	IFT FEAT_COMMAND7VOLUMEONLY
+	IFT FEAT_VOLUME_ONLY
 	lda trackn_audc,x
 	ora #$f0
 	sta trackn_audc,x
@@ -1290,7 +1288,7 @@ cmd0a
 cmd0a1
 	tay
 	
-	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+cmd0a1_a
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	lda pointer16bitlo+1
 	beq cmd0a2		; 16-bit mode not active
@@ -1324,7 +1322,7 @@ cmd0a1subdone
 	EIF
 	
 cmd0a2	
-	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+	IFT FEAT_FULL_SAWTOOTH
 	lda sawtoothtables+1
 	beq cmd0a3		; sawtooth not active
 	lda (sawtoothtables),y
@@ -1335,7 +1333,6 @@ cmd0a2
 	adc frqaddcmd2
 	EIF	
 	sta trackn_audf+2,x	; since we're in channel 1 of either POKEY, offset +2 will always be the 3rd channel
-	EIF
 	EIF
 
 cmd0a3
@@ -1357,8 +1354,8 @@ cmd0b
 	lda #63
 cmd0b1
 	tay
-	
-	IFT FEAT_FULL_TABLES_HIJACK||FEAT_BASS16
+
+cmd0b1_a
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	lda pointer16bitlo+1
 	beq cmd0b2		; 16-bit mode not active
@@ -1395,7 +1392,7 @@ cmd0b1subdone
 	EIF
 	
 cmd0b2	
-	IFT FEAT_FULL_SAWTOOTH&&FEAT_FULL_TABLES_HIJACK
+	IFT FEAT_FULL_SAWTOOTH 
 	lda sawtoothtables+1
 	beq cmd0b3		; sawtooth not active
 	lda trackn_shiftfrq,x
@@ -1408,7 +1405,6 @@ cmd0b2
 	adc frqaddcmd2
 	EIF	
 	sta trackn_audf+2,x	; since we're in channel 1 of either POKEY, offset +2 will always be the 3rd channel
-	EIF
 	EIF
 
 cmd0b3

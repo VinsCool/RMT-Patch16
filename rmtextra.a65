@@ -58,7 +58,7 @@ StopInstrument                  ; 6502_jsr() was called by RMT with values in me
        dta $00			; allign memory for the DriverVersion label... 
 ;	org $????		; could be set anywhere... not yet decided...
 DriverVersion
-	dta c"Patch 16-3.1 by VinsCool"
+	dta c"Patch 16-3.2 by VinsCool"
 	dta $00			; allign memory, and text terminator
 	dta c"Hello Bitches... :3 Please don't mind me I am testing bytes overflow... is it dead?"
 	dta $00			; allign memory, and easter egg... hehehehe ;)
