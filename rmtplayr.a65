@@ -59,7 +59,7 @@ frqaddcmd2		org *+1
 pointer16bitlo		org *+2
 	EIF
 	
-	IFT FEAT_FULL_SAWTOOTH
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 sawtoothtables		org *+2
 	EIF 
 	
@@ -930,15 +930,35 @@ check_index_mono
 	cpx #1			; ch2
 	beq check_ch2		
 				; ch1 is unconditional, the other 3 channels were already tested!
-check_ch1 			
-	bit CH1_179 
+check_ch1 
+	IFT FEAT_FULL_SAWTOOTH
+	bit CH1_179		
+	beq get_15khz_flag	; if 1.79mhz mode is not enabled in ch1, there will be no Sawtooth 
+	IFT FEAT_FULL_16BIT
+	bit JOIN_12
+	bne hellno		; 16-bit mode takes priority over Sawtooth!!!	
+	EIF	
+	bit CH3_179		
+	beq get_179_flag	; ch3 MUST have 1.79mhz mode enabled as well, if it is not, there will be no Sawtooth
+	IFT FEAT_FULL_16BIT
+	bit JOIN_34
+	bne get_179_flag	; 16-bit mode takes priority over Sawtooth!!!
+	EIF
+	cpy #$0A		; Distortion A?
+	bne get_179_flag	; no Sawtooth if not equal
+	lda tmp			; volume value backup
+	beq get_179_flag	; no Sawtooth if the volume is 0
+	jmp do_sawtooth		; if all checks passed, process the Sawtooth code
+	ELS
+	bit CH1_179
 	beq get_15khz_flag
 	IFT FEAT_FULL_16BIT
 	bit JOIN_12
 	beq get_179_flag
-	bne hellno
+	bne hellno	
 	ELS
 	bne get_179_flag
+	EIF 
 	EIF
 	
 check_ch2	
@@ -1200,7 +1220,7 @@ ei4
 	lda reg2
 	and #$70
 	IFT 1==[FEAT_COMMAND1+FEAT_COMMAND2+FEAT_COMMAND3+FEAT_COMMAND4+FEAT_COMMAND5+FEAT_COMMAND6+FEAT_COMMAND7]	
-	beq cmd0
+	beq cmd0	
 	ELS
 	lsr @
 	lsr @
@@ -1439,7 +1459,7 @@ cmd0a1subdone
 	EIF
 	
 cmd0a2	
-	IFT FEAT_FULL_SAWTOOTH
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 	lda sawtoothtables+1
 	beq cmd0a3		; sawtooth not active
 	lda (sawtoothtables),y
@@ -1509,7 +1529,7 @@ cmd0b1subdone
 	EIF
 	
 cmd0b2	
-	IFT FEAT_FULL_SAWTOOTH 
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 	lda sawtoothtables+1
 	beq cmd0b3		; sawtooth not active
 	lda trackn_shiftfrq,x
@@ -1589,9 +1609,9 @@ pp11
 	
 ;* part of mainloop code... this is an extra step added for the purpose of clearning the memory from 16-bit or Sawtooth addresses when unused.
 
-	IFT FEAT_FULL_SAWTOOTH||FEAT_FULL_16BIT||FEAT_BASS16
+	IFT FEAT_FULL_16BIT||FEAT_BASS16||[FEAT_FULL_SAWTOOTH+FEAT_AUDCTLMANUALSET]=2
 	ldy #0			; reset the values to 0, since they're no longer needed for checks
-	IFT FEAT_FULL_SAWTOOTH
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 	sty sawtoothtables
 	sty sawtoothtables+1
 	EIF
@@ -1705,7 +1725,7 @@ rmt_p5
 
 ;* start of Sawtooth code...
 
-	IFT FEAT_FULL_SAWTOOTH
+	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 do_sawtooth
 	lda reg2
 	bpl hijack_sawtooth_done	; AUTOFILTER command is off, skip overwriting the other things	
@@ -1722,7 +1742,7 @@ do_sawtooth
 	bne sawtooth_audctl_done	; unconditional
 	EIF
 sawtooth_audctl_mono	
-	ora reg1			; combine the existing AUDCTL value to it
+	ora v_audctl			; combine the existing AUDCTL value to it
 	sta v_audctl			; store the new AUDCTL value, left POKEY
 sawtooth_audctl_done
 	IFT FEAT_COMMAND6		; Sawtooth CMD6 hack... could be optimised much better, or maybe moved into the commands? 
