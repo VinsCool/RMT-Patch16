@@ -1064,8 +1064,19 @@ check_ch2
 	lda #$50		; JOIN_12 + CH1_179 bits 
 hellyes
 	jmp do_bass16
+	IFT FEAT_FULL_16BIT
+get_16bit_flag
+	lda #$80		; #$80 == Valid 16-bit flag, unconditional 
+	sta nr			; 16-bit hi LSB
+	lda #$C0		; 64 bytes further for the 16-bit LSB table
+	sta pointer16bitlo  	; 16-bit lo LSB
+	lda #0			; no volume output, Distortion won't matter
+	sta trackn_audc-1,x	; process the next channel's AUDC early, no sound is wanted  
+	lda TABLES_MSB,y
+	sta pointer16bitlo+1	; 16-bit lo MSB
+	bne store_tables_lsb_a	; unconditional, finish in the middle of the 64khz/1.79mhz branch
 	EIF
-				
+	EIF			
 no_index	
 	lda #0			; use to overwrite the tables LSB pointer
 	EIF	
