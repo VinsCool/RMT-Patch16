@@ -799,6 +799,8 @@ pp0					; get AUDCTL as early as possible, properly this time!
 	ora trackn_audctl+7
 	sta v_audctl2	
 	EIF	
+pp0_a
+	sta reg1			; backup the AUDCTL to the zeropage for quicker accesses later	
 	ELS
 	lda #0
 	sta v_audctl
@@ -806,11 +808,9 @@ pp0					; get AUDCTL as early as possible, properly this time!
 	sta v_audctl2
 	EIF
 	EIF
-pp0_a
-	sta reg1			; backup the AUDCTL to the zeropage for quicker accesses later
-	
+
 pp1					; copying the values to the zeropage to make things faster... but not all bytes need this...
-	IFT TRACKS>4
+	IFT TRACKS>4&&FEAT_AUDCTLMANUALSET
 	cpx #3				; ch4, Left POKEY, specifically to verify we have the proper AUDCTL value in reg1!
 	bne pp1_a			; if not equal, reg1 has the proper value already
 	lda v_audctl			; if equal, get the proper AUDCTL value first
@@ -887,14 +887,14 @@ do_tuning_tables
 	lda reg2		; Distortion and Command
 	and #$0E		; Only keep the Distortion bits
 	tay			; will be used for the tables MSB pointer, and the Distortion itself	
+	
+	IFT FEAT_AUDCTLMANUALSET
 	lda reg1		; AUDCTL backup 
 	bne check_index 	; if not zero, process the channels index
-	
 	IFT FEAT_BASS16
 	cpy #$06 		; Distortion 6?
 	beq check_index		; channels MUST be checked, even with AUDCTL == 0, in order to process the BASS16 code properly!
 	EIF
-	
 	jmp store_tables_lsb	; if 0, no flag to check, skip checking channels immediately!
 	
 	IFT FEAT_BASS16
@@ -914,12 +914,13 @@ check_index
 check_index_stereo	
 	cpx #4			; are we in the right POKEY channels?
 	bcc check_index_mono	; if x is lower than 4, we are not
-	beq check_ch1		; if equal, this is the Right POKEY ch1 index
 	cpx #7			; ch4
-	beq check_ch4_a
+	beq check_ch4
 	cpx #6 			; ch3
-	beq check_ch3_a
-	bne check_ch2_a		; ch2 is unconditional, the other 3 channels were already tested!
+	beq check_ch3
+	cpx #5			; ch2
+	beq check_ch2	
+	bne check_ch1		; ch1 is unconditional, the other 3 channels were already tested!
 	EIF
 check_index_mono
 	cpx #3			; ch4
@@ -932,11 +933,16 @@ check_index_mono
 check_ch1 			
 	bit CH1_179 
 	beq get_15khz_flag
+	IFT FEAT_FULL_16BIT
 	bit JOIN_12
 	beq get_179_flag
 	bne hellno
+	ELS
+	bne get_179_flag
+	EIF
 	
-check_ch2 
+check_ch2	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	IFT FEAT_BASS16
 	cpy #$06		; Distortion 6?
 	bne check_ch2_b		; if not equal, no BASS16
@@ -948,20 +954,32 @@ check_ch2_a
 	lda reg1		; reload the AUDCTL, then continue like normal
 	EIF
 check_ch2_b
+	IFT FEAT_FULL_16BIT
 	bit CH1_179
 	beq get_15khz_flag
 	bit JOIN_12
 	bne get_16bit_flag
-	beq get_15khz_flag		
+	beq get_15khz_flag	
+	ELS
+	jmp get_15khz_flag
+	EIF	
+	ELS
+	beq get_15khz_flag	; unconditional
+	EIF
 	
 check_ch3 	
 	bit CH3_179
 	beq get_15khz_flag
+	IFT FEAT_FULL_16BIT
 	bit JOIN_34
 	beq get_179_flag
 	bne hellno	
+	ELS
+	bne get_179_flag
+	EIF
 	
-check_ch4 
+check_ch4	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
 	IFT FEAT_BASS16
 	cpy #$06		; Distortion 6?
 	bne check_ch4_b		; if not equal, no BASS16
@@ -973,10 +991,15 @@ check_ch4_a
 	lda reg1		; reload the AUDCTL, then continue like normal
 	EIF
 check_ch4_b
+	IFT FEAT_FULL_16BIT
 	bit CH3_179
 	beq get_15khz_flag
 	bit JOIN_34
 	bne get_16bit_flag
+	EIF
+	ELS
+;	beq get_15khz_flag	; unconditional	
+	EIF
 	
 get_15khz_flag
 	and #1			; #$01 == 15khz flag, unconditional 
@@ -993,6 +1016,7 @@ check_15khz_c
 	lda #>PAGE_EXTRA_0	; tables MSB pointer, it's the same one regardless of the table used
 	bne store_tables_lsb_a	; unconditional 
 	
+	IFT FEAT_FULL_16BIT
 get_16bit_flag
 	lda #$80		; #$80 == Valid 16-bit flag, unconditional 
 	sta nr			; 16-bit hi LSB
@@ -1003,12 +1027,53 @@ get_16bit_flag
 	lda TABLES_MSB,y
 	sta pointer16bitlo+1	; 16-bit lo MSB
 	bne store_tables_lsb_a	; unconditional, finish in the middle of the 64khz/1.79mhz branch
+	EIF
 	
 get_179_flag
 	lda #$40		; #$40 == 1.79mhz flag, unconditional 
+	ELS
+	
+;*!!! FEAT_AUDCTLMANUALSET is not defined, so we must use some alternative code for a few things such as BASS16! 
+				
+	IFT FEAT_BASS16
+	cpy #$06 		; Distortion 6?
+	bne no_index		; channels MUST be checked, even with AUDCTL == 0, in order to process the BASS16 code properly!
+	lda tmp 		; volume value backup
+	beq no_index		; if the volume is 0, no BASS16
+check_index
+	IFT TRACKS>4		; stereo mode
+	cpx #4			; are we in the right POKEY channels?
+	bcc check_index_mono	; if x is lower than 4, we are not
+check_index_stereo	
+	cpx #7			; ch4
+	beq check_ch4
+	cpx #5			; ch2
+	beq check_ch2	
+	bne no_index		; ch1 is unconditional, the other 3 channels were already tested!
+	EIF
+check_index_mono
+	cpx #3			; ch4
+	beq check_ch4
+	cpx #1			; ch2
+	beq check_ch2		
+	bne no_index		; ch1 is unconditional, the other 3 channels were already tested! 
+check_ch4 
+	lda #$28		; JOIN_34 + CH3_179 bits 
+	bne hellyes		; unconditional	
+check_ch2 
+	lda #$50		; JOIN_12 + CH1_179 bits 
+hellyes
+	jmp do_bass16
+	EIF
+				
+no_index	
+	lda #0			; use to overwrite the tables LSB pointer
+	EIF	
+			
+;*!!! end of condition FEAT_AUDCTLMANUALSET
 	
 store_tables_lsb
-	sta nr			; tables LSB pointer, divided in slices of 64 bytes each
+	sta nr			; tables LSB pointer, divided in slices of 64 bytes each	
 	lda TABLES_MSB,y
 store_tables_lsb_a
 	sta nr+1		; tables MSB pointer, which is the memory page used for tables divided based on their Distortion
