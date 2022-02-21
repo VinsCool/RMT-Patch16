@@ -392,10 +392,14 @@ GetSongLine
 	stx v_abeat			; set the pattern row to 0 for the new songline... This could be exploited with an effect command related to premature pattern end, or pattern goto...
 nn0
 nn0_a
-        IFT FEAT_IS_VISUALP		; RMT Visualiser hack for displaying the songline number, this is 100% useless but cool to have nonetheless.
-	lda p_song
+	IFT FEAT_IS_SIMPLEP
+	IFT EXPORTXEX			; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
+	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
+	add #16				; offset the value by #$10 for a simple colour shuffle
+	sta loop+1   			; store back where it was loaded, overwriting the previous value
+	lda p_song			; calculate the songline? why such an elaborate setup tho?
 	sub MODUL+14 
-	sta v_ord			; this variable only exists in rmtvis, this is what will be used to display the songline number
+	sta v_ord 
 	lda p_song+1
 	sbc MODUL+15
 	lsr @
@@ -405,14 +409,7 @@ nn0_a
 	IFT TRACKS>4
 	lsr @
 	ror v_ord
-	EIF
-	EIF
-nn0_b
-	IFT FEAT_IS_SIMPLEP
-	IFT EXPORTXEX			; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
-	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
-	add #16				; offset the value by #$10 for a simple colour shuffle
-	sta loop+1   			; store back where it was loaded, overwriting the previous value
+	EIF 
 	EIF 
 	EIF
 	

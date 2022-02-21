@@ -10,9 +10,6 @@
 ;* enable ONLY if the target output is the actual RMT driver binary (tracker.obx), There are few specific changes involved!
 FEAT_IS_TRACKER 	equ 0
 
-;* Exclusively used with RMT Visualizer (RMTVIS), this can be ignored
-FEAT_IS_VISUALP 	equ 0
-
 ;* Simple RMT Player is a simple recreation of the original .xex export player from RMT, enable for few bonus features
 FEAT_IS_SIMPLEP 	equ 1
 
@@ -73,7 +70,7 @@ FEAT_FILTERG1R		equ 1
 ;* New 16-bit code, for full 16-bit support
 FEAT_FULL_16BIT		equ 1			;* patch16 addition by Vin, unsure how many bytes are involved
 
-;* Alternative 16-bit method, which simplifies the old BASS16 method,can be used to output 16-bit frequencies using Distortion 6
+;* Alternative 16-bit method, which simplifies the old BASS16 method, can be used to output 16-bit frequencies using Distortion 6
 FEAT_BASS16		equ 1			;* patch16 addition by Vin, unsure how many bytes are involved
 
 ;* New Sawtooth code, output the Sawtooth waveform, or Triangle

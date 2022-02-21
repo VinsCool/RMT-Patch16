@@ -43,7 +43,20 @@ STEREOMODE	equ 0
 
 ; screen line for synchronization, important to set with a good value to get smooth execution
 
-VLINE		equ 7		; 16 is the default according to Raster's example player
+;VLINE		equ 7		; 16 is the default according to Raster's example player
+
+; The target is to get the first rmtplay occuring on scanline 16 (NTSC) or ?? (PAL) for stability
+; VLINE cannot be higher than 155! Otherwise, it will never work, and stay in an endless loop!
+;
+; NTSC 	->	VLINE must be: 	7 for 1x, 85 for 2x,
+; PAL 	->	VLINE must be:	??
+;
+; NTSC2PAL ->	VLINE must be:	7 for 1x, 7 for 2x,
+; PAL2NTSC ->	VLINE must be:	??
+
+VLINE		equ 7		; nice round numbers fit well with multiples of 8 for every xVBI...
+
+	ERT VLINE>155		; VLINE cannot be higher than 155!
 
 ; rasterbar colour
 
@@ -51,24 +64,34 @@ RASTERBAR	equ $69		; $69 is a nice purpleish hue
 
 ; some memory addresses
 
+DISPLAY equ $FE			; zeropage address of the Display List indirect memory address
+
 MODUL	equ $4000		; address of RMT module
 DOSVEC	equ $000A
 RTCLOK	equ $0012 		; Real Time Clock
 VVBLKI	equ $0222		; Vertical Blank Immediate (VBI) Register
 SDMCTL	equ $022F 		; Shadow Direct Memory Access Control address
 SDLSTL	equ $0230
+COLOR0	equ $02C4
 COLOR1	equ $02C5
 COLOR2	equ $02C6
+COLOR3	equ $02C7
 COLOR4	equ $02C8
 CH	equ $02FC
 PAL	equ $D014
+COLPF0	equ $D016
+COLPF1	equ $D017
 COLPF2	equ $D018
+COLPF3	equ $D019
 COLBK	equ $D01A
 KBCODE	equ $D209
 SKSTAT	equ $D20F
 VCOUNT	equ $D40B
+rCHBASE equ $d409 		; character gfx address
 WSYNC	equ $d40A 		; wait for hblank
 NMIEN	equ $D40E
+
+FONT    equ $bc00       	; custom font location
 
 ;* end of dasmplayer definitions...
 
@@ -136,27 +159,55 @@ subtune
 ; assemble rmtplayr here... 
 
 	icl 'rmtplayr.a65'	; execution address is $3400
+	
+;-----------------
 
 ; assemble Simple RMT Player here... 
 	
-	org $3D00		; may become $3D00 instead of $3E00 due to the extra VBI checks going
+	org $3C00		; may become $3D00 instead of $3E00 due to the extra VBI checks going
 start       
 	ldx #0			; disable playfield and the black colour value
 	stx SDMCTL		; write to Shadow Direct Memory Access Control address
 	jsr wait_vblank		; wait for vblank before continuing
-	stx COLOR4		; Shadow COLBK (background colour)
-	stx COLOR2		; Shadow COLPF2 (playfield colour 2)
-	ldx #$F			; white colour value
-	stx COLOR1		; Shadow COLPF1 (Playfield colour 1), font colour
+	stx COLOR4		; Shadow COLBK (background colour), black
+	stx COLOR2		; Shadow COLPF2 (playfield colour 2), black
 	mwa #dlist SDLSTL	; Start Address of the Display List
+	mva #>FONT rCHBASE      ; load the font address into the character register, same things apply to it
+	mwa #line_0 DISPLAY	; initialise the Display List indirect memory address for later
+
+set_colours
+	lda #74
+	sta COLOR3
+	lda #223
+	sta COLOR1
+	lda #30
+	sta COLOR0
+	
+;-----------------
+		
 module_init	
 	ldx #<MODUL		; low byte of RMT module to X reg
 	ldy #>MODUL		; hi byte of RMT module to Y reg
 	lda #STARTLINE		; starting song line 0-255 to A reg
 	jsr rmt_init		; Init returns instrument speed (1..4 => from 1/screen to 4/screen)
 	tay			; use the instrument speed as an offset
+	
+;-----------------
+	
 adjust_check
+	beq adjust_check_a	; Y is 0 if equal, this is invalid!
+	bpl adjust_check_b	; Y = 1 to 127, however, 16 is the maximum supported
+adjust_check_a
+	ldy #1			; if Y is 0, nagative, or above 16, this will be bypassed!
+	sty v_instrspeed	; failsafe, instrument speed of 1 is forced
+	sty v_ainstrspeed 	; both values need to be overwritten for the fix to work correctly
+adjust_check_b
+	cpy #17			; Y = 17?
+	bcs adjust_check_a	; everything equal or above 17 is invalid! 
+adjust_check_c
+	sty instrspeed		; print later ;)
 	cpy #5
+	bcc do_speed_init	; all values between 1 to 4 don't need adjustments
 	beq adjust_5vbi
 	cpy #7
 	beq adjust_7vbi
@@ -171,28 +222,27 @@ adjust_check
 	cpy #14
 	beq adjust_7vbi
 	cpy #15
-	beq adjust_10vbi
-	cpy #16
-	beq adjust_9vbi
-no_adjust
-	bne do_speed_init_a
+	beq adjust_10vbi 
+adjust_9vbi			; 16 is the maximal number supported, and uses the 9xVBI fix
+	lda #153		; fixes 9xVBI, 16xVBI
+	bne do_vbi_fix
 adjust_5vbi
 	lda #155		; fixes 5xVBI
-	bne do_speed_init
+	bne do_vbi_fix
 adjust_7vbi
 	lda #154		; fixes 7xVBI, 11xVBI, 14xVBI
-	bne do_speed_init
-adjust_9vbi
-	lda #153		; fixes 9xVBI, 16xVBI
-	bne do_speed_init
+	bne do_vbi_fix
 adjust_8vbi
 	lda #152		; fixes 8xVBI
-	bne do_speed_init
+	bne do_vbi_fix
 adjust_10vbi
 	lda #150		; fixes 10xVBI, 15xVBI
-do_speed_init
+do_vbi_fix
 	sta onefiftysix
-do_speed_init_a
+	
+;-----------------
+	
+do_speed_init
 	lda tabpp-1,y		; load from the line counter spacing table
 	sta acpapx2		; lines between each play
 	ldx #$22		; DMA enable, normal playfield
@@ -200,6 +250,9 @@ do_speed_init_a
 	ldx #100		; load into index x a 100 frames buffer
 wait_init   
 	jsr wait_vblank		; wait for vblank => 1 frame
+	
+	mva #>FONT rCHBASE	
+	
 	dex			; decrement index x
 	bne wait_init		; repeat until x = 0, total wait time is ~2 seconds
 region_init			; 50 Hz or 60 Hz?
@@ -211,27 +264,94 @@ region_loop
 	beq check_region	; vcount = 0, go to check_region and compare values
 	tay			; backup the value in index y
 	bne region_loop 	; repeat
+	
+;-----------------
+	
 check_region
 	cpy #$9B		; compare index y to 155
 	IFT REGIONPLAYBACK==0	; if the player region defined for PAL...
 	bpl region_done		; negative result means the machine runs at 60hz
 	ldx #130		; NTSC is detected, adjust the speed from PAL to NTSC
+	
 	ELI REGIONPLAYBACK==1	; else, if the player region defined for NTSC...
 	bmi region_done		; positive result means the machine runs at 50hz
-	ldx #187		; PAL is detected, adjust the speed from NTSC to PAL
+
+	ldx #185		; PAL is detected, adjust the speed from NTSC to PAL
+	lda instrspeed		; what value did RMT return again?
+	cmp #1
+	beq subonetotiming	; 1xVBI is stable if 1 is subtracted from the value, 186 must be used!
+	cmp #2
+	beq region_done		; 2xVBI is stable without a subtraction
+	cmp #3
+	beq region_done		; 3xVBI is stable without a subtraction
+	cmp #4
+	beq subtwototiming	; 4xVBI is stable if 2 is subtracted from the value, 185 must be used!
+
+subthreetotiming
+	dec acpapx2		; stabilise NTSC timing in PAL mode
+	
+subtwototiming
+	dec acpapx2		; stabilise NTSC timing in PAL mode	
+subonetotiming
+	dec acpapx2		; stabilise NTSC timing in PAL mode
+	
 	EIF			; endif
+	
 region_done
+	sty region_byte		; set region flag to print later
 	stx ppap		; value used for screen synchronisation
 	sei			; Set Interrupt Disable Status
 	mwa VVBLKI oldvbi       ; vbi address backup
 	mwa #vbi VVBLKI		; write our own vbi address to it	
 	mva #$40 NMIEN		; enable vbi interrupts
+	
+	mva #>FONT rCHBASE
+	
+;-----------------
+
+; print instrument speed, done once per initialisation
+
+	ldy #4			; 4 characters buffer 
+	lda #0
+instrspeed 	equ *-1
+	jsr printhex_direct
+	lda #0
+	dey			; Y = 4 here, no need to reload it
+	sta (DISPLAY),y 
+	mva:rne txt_VBI-1,y line_0+5,y-
+	
+;-----------------
+	
+; print region, done once per initialisation
+
+	ldy #4			; 4 characters buffer 
+	lda #0
+region_byte	equ *-1
+	cmp #$9B
+	bmi is_NTSC
+is_PAL
+	ldx #50
+	mva:rne txt_PAL-1,y line_0-1,y-
+	beq is_DONE
+is_NTSC
+	ldx #60
+	mva:rne txt_NTSC-1,y line_0-1,y-
+is_DONE				
+	sty v_second		; Y is 0, reset the timer with it
+	sty v_minute
+	stx v_frame		; X is either 50 or 60, defined by the region initialisation
+	stx framecount
+
+;------------------
+	
 wait_sync
 	lda VCOUNT		; current scanline 
 	cmp #VLINE		; will stabilise the timing if equal
-	bne wait_sync		; nope, repeat
+	bcc wait_sync		; nope, repeat
 
-; main loop, code runs from here after initialisation
+;-----------------
+
+; main loop, code runs from here ad infinitum after initialisation
 
 loop
 	ldy #RASTERBAR		; custom rasterbar colour
@@ -272,6 +392,8 @@ play_loop
 	sty COLPF2		; playfield colour 2 
 	beq loop                ; unconditional
 
+;-----------------
+
 ; VBI loop
 
 vbi
@@ -286,6 +408,9 @@ set_line_4
 	lda KBCODE		; Keyboard Code
 	cmp #$1C		; ESCape key?
 	bne continue		; nope => loop
+	
+;-----------------
+	
 stopmusic 
 	jsr rmt_silence		; stop RMT and reset the POKEY registers
 	mwa oldvbi VVBLKI	; restore the old vbi address
@@ -295,7 +420,208 @@ stopmusic
 	stx CH			; write to the CH register, #$FF means no key pressed
 	jsr wait_vblank		; wait for vblank before continuing
 	jmp (DOSVEC)		; return to DOS, or Self Test by default
-continue
+
+;-----------------
+
+continue			; do everything else during VBI after the keyboard checks
+
+; calculate time 
+
+	dec v_frame		; decrement the frame counter
+	bne notimetolose	; not 0 -> a second did not yet pass
+	lda #0
+framecount equ *-1		; 50 or 60, defined by the region initialisation
+	sta v_frame		; reset the frame counter
+	bne addasecond		; unconditional
+	nop
+v_frame equ *-1			; the NOP instruction is overwritten by the frame counter
+	
+addasecond
+	sed			; set decimal flag first
+	lda #0
+v_second equ *-1
+	adc #1			; carry flag is clear, add 1 directly
+	sta v_second
+	cmp #$60		; 60 seconds, must be a HEX value!
+	bne cleardecimal 	; if not equal, no minute increment
+	ldy #0			; will be used to clear values quicker
+	
+addaminute
+	lda #0
+v_minute equ *-1
+	adc #0			; carry flag is set above, adding 0 will add 1 instead
+	sta v_minute
+	sty v_second		; reset the second counter
+cleardecimal 
+	cld			; clear decimal flag 
+notimetolose
+	
+;-----------------
+	
+; get the right screen position
+	mwa #line_0 DISPLAY
+	
+; print seconds
+	ldy #38
+	lda v_second
+	jsr printhex_direct
+
+; print minutes
+	ldy #35
+	lda v_minute
+	jsr printhex_direct
+	
+; print order	
+	ldy #70
+	lda #0
+v_ord	equ *-1
+	jsr printhex_direct
+	
+; print row
+	ldy #78
+	lda v_abeat
+	jsr printhex_direct
+	
+;-----------------
+	
+; draw the volume blocks
+
+begindraw
+	IFT TRACKS>4
+	mwa #mode_6+TRACKS-2 DISPLAY 
+	ELS
+	mwa #mode_6+TRACKS+4 DISPLAY
+	EIF
+	ldx #0
+	
+; index ORA
+; #$00 -> COLPF0
+; #$40 -> COLPF1 (could be exploited since the font seems to only change brightness), use on numbers and green bars level
+; #$80 -> COLPF2 cannot be used!! conflicts with rasterbar, unless I used a DLI
+; #$C0 -> COLPF3
+	
+; if it begins at 0, order could be: red, green, yellow (2x), and numbers in green again...
+
+; line 1: pf3
+; line 2: pf1, use also on numbers below line 5
+; line 3 and 4: pf0
+	
+	lda #$c0
+	sta colour_bar
+
+begindraw1 
+	ldy #0
+	
+begindraw2
+	lda trackn_audc,y
+	and #$0F
+	
+	cpx #1
+	beq vol_8_to_11
+	cpx #2
+	beq vol_4_to_7
+	cpx #3
+	beq vol_0_to_3
+	
+vol_12_to_15
+	cmp #12			; must be equal or above
+	bcc draw_0_bar		; below means the graphic must be blank
+	beq draw_1_bar
+	cmp #13
+	beq draw_2_bar
+	cmp #14
+	beq draw_3_bar
+	bne draw_4_bar		; unconditional
+	
+vol_8_to_11
+	cmp #8			; must be equal or above
+	bcc draw_0_bar		; below means the graphic must be blank
+	beq draw_1_bar
+	cmp #9
+	beq draw_2_bar
+	cmp #10
+	beq draw_3_bar
+	bne draw_4_bar		; unconditional
+
+vol_4_to_7
+	cmp #4			; must be equal or above
+	bcc draw_0_bar		; below means the graphic must be blank
+	beq draw_1_bar
+	cmp #5
+	beq draw_2_bar
+	cmp #6
+	beq draw_3_bar
+	bne draw_4_bar		; unconditional
+
+vol_0_to_3
+	cmp #1
+	beq draw_1_bar		; below means the graphic must be blank
+	cmp #2
+	beq draw_2_bar
+	cmp #3
+	beq draw_3_bar
+	bcs draw_4_bar
+	
+draw_0_bar
+	lda #0
+	beq draw_line1		; unconditional
+	
+draw_1_bar
+	lda #63
+	bne draw_line1
+
+draw_2_bar
+	lda #60
+	bne draw_line1
+
+draw_3_bar
+	lda #27
+	bne draw_line1
+
+draw_4_bar
+	lda #5
+
+draw_line1
+	ora #0
+colour_bar equ *-1
+	sta (DISPLAY),y
+draw_line1_a
+	iny
+	cpy #TRACKS
+	bne begindraw2
+	
+begin_next
+	inx
+	cpx #4
+	beq finishedloop
+	
+goloopagain
+	lda DISPLAY
+	add #20
+	sta DISPLAY
+	scc:inc DISPLAY+1
+	
+	cpx #1
+	beq colour_change_line2
+
+colour_change_line34
+	lda #$00
+	sta colour_bar
+	beq no_colour_change
+	
+colour_change_line2
+	lda #$40
+	sta colour_bar
+	bne no_colour_change
+
+no_colour_change	
+	jmp begindraw1 
+
+finishedloop
+	
+;-----------------
+
+return_from_vbi
 	pla			; since we're in our own vbi routine, pulling all values manually is required
 	tay
 	pla
@@ -303,6 +629,8 @@ continue
 	pla
 	sta WSYNC		; horizontal sync, this seems to make the timing more stable
 	rti			; return from interrupt
+
+;-----------------
 
 ; wait for vblank subroutine
 
@@ -312,34 +640,124 @@ wait
 	cmp RTCLOK+2		; compare to itself
 	beq wait		; equal means it vblank hasn't began
 	rts
+
+;-----------------
+
+; print hex characters for several things, useful for displaying all sort of debugging infos
 	
+printhex
+	ldy #0
+printhex_direct     ; workaround to allow being addressed with y in different subroutines
+	pha
+	:4 lsr @
+	;beq ph1    ; comment out if you want to hide the leftmost zeroes
+	tax
+	lda hexchars,x
+ph1	
+        sta (DISPLAY),y+
+	pla
+	and #$f
+	tax
+	mva hexchars,x (DISPLAY),y
+	rts
+hexchars 
+        dta d"0123456789ABCDEF"
+        
+;-----------------
+
+; some plaintext data used in few spots
+        
+txt_NTSC
+        dta d"NTSC"*
+txt_PAL
+        dta d"PAL"*,d" "
+txt_VBI
+	dta d"xVBI"
+        
+;-----------------
+        
 ; Display list
 
 dlist       
-	:13 dta $70		; 8 blank lines, 13 times
-	dta $42,a(line_1)	; ANTIC mode 2, memory address set to line_1
-	dta $02,$02,$42		; Display ANTIC mode 2, 3 more times, displaying every other line in order
+	:5 dta $70
+	dta $42,a(line_0)	; ANTIC mode 2
+	dta $02
+	:3 dta $70
+	dta $46,a(mode_6)	; ANTIC mode 6, 20 characters wide
+	:4 dta $06		
+	:1 dta $70
+	dta $42,a(line_1)	; ANTIC mode 2
+	dta $02,$02
+	dta $42			
 txt_toggle
 	dta a(line_4)		; memory address set to line_4 by default, or line_5 when SHIFT is held
+	:6 dta $70
+	dta $42,a(line_6)	; 1 final line of mode 2
 	dta $41,a(dlist)	; Jump and wait for vblank, return to dlist
+	
+;-----------------
 
 ; line counter spacing table for instrument speed from 1 to 16
 
 tabpp       
 	dta 156,78,52,39,31,26,22,19,17,15,14,13,12,11,10,9 
 
+;-----------------
+
 oldvbi	
 	dta a(0)		; vbi address backup
+	
+;-----------------
 
 ; text strings, each line holds 40 characters, line 5 is toggled with the SHIFT key
 
-	org $3F00		; must be at this memory address 
+	org $A000		; must be at this memory address 
 
-line_1	dta d"Line 1                                  "
-line_2	dta d"Line 2                                  "
-line_3	dta d"Line 3                                  "
-line_4	dta d"Line 4 (hold SHIFT to toggle)           "
-line_5	dta d"Line 5 (SHIFT is being held right now)  "
+line_0	dta d"                             Time: 00:00"
+line_0a	dta d"                       Order: 00 Row: 00"
+
+;line_1	dta d"Line 1                                  "
+;line_2	dta d"Line 2                                  "
+;line_3	dta d"Line 3                                  "
+;line_4	dta d"Line 4 (hold SHIFT to toggle)           "
+;line_5	dta d"Line 5 (SHIFT is being held right now)  "
+
+line_1	dta d"Temple of Questions (Sketch 24.rmt)     "
+line_2	dta d"Another stupid idea by VinsCool...      "
+line_3	dta d"Nice volume bars, eh? That was fun...   "
+line_4	dta d"                                        "
+line_5	dta d"Tuez-moi, s'il vous plait... hgdhwjhdhwc"
+
+;
+;vol_ch1	dta d"                    "
+;vol_ch2	dta d"                    "
+;vol_ch3	dta d"                    "
+;vol_ch4	dta d"                    "
+;
+
+mode_6	dta d"                    "
+mode_6a	dta d"                    "
+mode_6b	dta d"                    "
+mode_6c	dta d"                    "
+;mode_6d	dta d"      12345678      "
+
+	IFT TRACKS>4
+mode_6d	dta $00,$00,$00,$00,$00,$00,$51,$52,$53,$54,$55,$56,$57,$58,$00,$00,$00,$00,$00,$00
+	ELS
+mode_6d	dta $00,$00,$00,$00,$00,$00,$00,$00,$51,$52,$53,$54,$00,$00,$00,$00,$00,$00,$00,$00
+	EIF
+
+
+line_6	dta d"VinsCool, 2022                          "
+
+;-----------------
+
+; load font into memory, this was put at the very end to avoid overwriting other data
+
+        org FONT                ; characters set memory location
+        ins "font.fnt"          ; some cool looking font
+
+;-----------------
 
 ; set run address
 
