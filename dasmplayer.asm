@@ -500,11 +500,10 @@ begindraw
 ; #$80 -> COLPF2 cannot be used!! conflicts with rasterbar, unless I used a DLI
 ; #$C0 -> COLPF3
 	
-; if it begins at 0, order could be: red, green, yellow (2x), and numbers in green again...
-
+; current order: red, green (2x), yellow, and numbers in green again...
 ; line 1: pf3
-; line 2: pf1, use also on numbers below line 5
-; line 3 and 4: pf0
+; line 2-3: pf1, use also on numbers below line 5
+; line 4: pf0
 	
 	lda #$c0
 	sta colour_bar
@@ -516,6 +515,7 @@ begindraw2
 	lda trackn_audc,y
 	and #$0F
 	
+begindraw3
 	cpx #1
 	beq vol_8_to_11
 	cpx #2
@@ -523,63 +523,54 @@ begindraw2
 	cpx #3
 	beq vol_0_to_3
 	
-vol_12_to_15
-	cmp #12			; must be equal or above
-	bcc draw_0_bar		; below means the graphic must be blank
-	beq draw_1_bar
-	cmp #13
-	beq draw_2_bar
+vol_12_to_15	
+	cmp #13			; must be equal or above
+	bcc draw_0_bar		; 12 and below
+	beq draw_1_bar		; 13
 	cmp #14
-	beq draw_3_bar
-	bne draw_4_bar		; unconditional
-	
+	beq draw_2_bar		; 14
+	bne draw_3_bar		; 15, maximum level!
 vol_8_to_11
-	cmp #8			; must be equal or above
-	bcc draw_0_bar		; below means the graphic must be blank
-	beq draw_1_bar
-	cmp #9
-	beq draw_2_bar
+	cmp #9			; must be equal or above
+	bcc draw_0_bar		; 8 and below
+	beq draw_1_bar		; 9
 	cmp #10
-	beq draw_3_bar
-	bne draw_4_bar		; unconditional
-
+	beq draw_2_bar		; 10
+	cmp #11
+	beq draw_3_bar		; 11
+	bne draw_4_bar		; 12 and above, must display all 4 bars
 vol_4_to_7
-	cmp #4			; must be equal or above
-	bcc draw_0_bar		; below means the graphic must be blank
-	beq draw_1_bar
-	cmp #5
-	beq draw_2_bar
+	cmp #5			; must be equal or above
+	bcc draw_0_bar		; 4 and below
+	beq draw_1_bar		; 5
 	cmp #6
-	beq draw_3_bar
-	bne draw_4_bar		; unconditional
-
+	beq draw_2_bar		; 6
+	cmp #7
+	beq draw_3_bar		; 7
+	bne draw_4_bar		; 8 and above, must display all 4 bars
 vol_0_to_3
-	cmp #1
-	beq draw_1_bar		; below means the graphic must be blank
+	cmp #1			; must be equal or above
+	bcc draw_0_bar		; 0
+	beq draw_1_bar		; 1
 	cmp #2
-	beq draw_2_bar
+	beq draw_2_bar		; 2
 	cmp #3
-	beq draw_3_bar
-	bcs draw_4_bar
-	
-draw_0_bar
-	lda #0
-	beq draw_line1		; unconditional
-	
-draw_1_bar
-	lda #63
+	beq draw_3_bar		; 3
+				
+draw_4_bar			; 4 and above, must display all 4 bars
+	lda #5
 	bne draw_line1
-
-draw_2_bar
-	lda #60
-	bne draw_line1
-
 draw_3_bar
 	lda #27
 	bne draw_line1
-
-draw_4_bar
-	lda #5
+draw_2_bar
+	lda #60
+	bne draw_line1
+draw_1_bar
+	lda #63
+	bne draw_line1
+draw_0_bar
+	lda #0
 
 draw_line1
 	ora #0
@@ -600,21 +591,16 @@ goloopagain
 	add #20
 	sta DISPLAY
 	scc:inc DISPLAY+1
-	
-	cpx #1
-	beq colour_change_line2
-
-colour_change_line34
-	lda #$00
-	sta colour_bar
-	beq no_colour_change
-	
-colour_change_line2
+verify_line
+	cpx #3
+	bcc change_line23	; below 3 
+change_line4
+	lda #$00 
+	beq colour_changed 
+change_line23 
 	lda #$40
-	sta colour_bar
-	bne no_colour_change
-
-no_colour_change	
+colour_changed
+	sta colour_bar		; change the colour to green 
 	jmp begindraw1 
 
 finishedloop
@@ -729,16 +715,12 @@ line_4	dta d"                                        "
 line_5	dta d"Tuez-moi, s'il vous plait... hgdhwjhdhwc"
 
 ;
-;vol_ch1	dta d"                    "
-;vol_ch2	dta d"                    "
-;vol_ch3	dta d"                    "
-;vol_ch4	dta d"                    "
-;
 
 mode_6	dta d"                    "
 mode_6a	dta d"                    "
 mode_6b	dta d"                    "
 mode_6c	dta d"                    "
+
 ;mode_6d	dta d"      12345678      "
 
 	IFT TRACKS>4
@@ -746,6 +728,8 @@ mode_6d	dta $00,$00,$00,$00,$00,$00,$51,$52,$53,$54,$55,$56,$57,$58,$00,$00,$00,
 	ELS
 mode_6d	dta $00,$00,$00,$00,$00,$00,$00,$00,$51,$52,$53,$54,$00,$00,$00,$00,$00,$00,$00,$00
 	EIF
+
+;
 
 
 line_6	dta d"VinsCool, 2022                          "
