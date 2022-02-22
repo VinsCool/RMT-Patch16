@@ -493,14 +493,6 @@ v_ord	equ *-1
 ;-----------------
 	
 ; draw the volume blocks
-
-begindraw
-	IFT TRACKS>4
-	mwa #mode_6+TRACKS-2 DISPLAY 
-	ELS
-	mwa #mode_6+TRACKS+4 DISPLAY
-	EIF
-	ldx #0
 	
 ; index ORA
 ; #$00 -> COLPF0
@@ -511,105 +503,157 @@ begindraw
 ; current order: red, green (2x), yellow, and numbers in green again...
 ; line 1: pf3
 ; line 2-3: pf1, use also on numbers below line 5
-; line 4: pf0
-	
-	lda #$c0
-	sta colour_bar
+; line 4: pf0 
 
+begindraw
+	mwa #mode_6+2 DISPLAY	; set the position on screen, offset by 2 in order to be centered
+	lda #$c0		; change the colour to red 
+	sta colour_bar
 begindraw1 
-	ldy #0
-	
+	lda #0			; empty character
+	tay			; also set Y to 0
+	tax			; also set X to 0
+begindraw1a
+	sta (DISPLAY),y		; clear the screen before drawing the VU Meter
+	iny
+	cpy #78			; 4x20 characters, minus 2 due to the offset in the pointer
+	bne begindraw1a		; repeat this process until all tiles have been cleared
 begindraw2
-	lda trackn_audc,y
+	lda trackn_audc,x	; channel volume and distortion
 	and #$0F
-	
+	sta volume_level,x	; temporary values, for the volume level
+	inx
+	cpx #TRACKS		; how many channels?
+	bne begindraw2		; get all bytes first
+	dex			; proper channel index
 begindraw3
-	cpx #1
-	beq vol_8_to_11
-	cpx #2
-	beq vol_4_to_7
-	cpx #3
-	beq vol_0_to_3
+	lda trackn_audf,x	; channel frequency
+	eor #$FF		; invert the value, the pitch goes from lowest to highest from the left side
+	:4 lsr @		; divide by 16
+	sta pitch_offset,x	; temporary values, for the VU Meter  
+	dex			; decrease since we got the number of channels just a moment ago
+	bpl begindraw3		; keep going until all channels are done, X will be 0 afterwards for the next step 
+	inx			; proper channel index
+	stx index_count		; X = 0, this resets the index, so we're on the first mode 6 line to draw
 	
-vol_12_to_15	
-	cmp #13			; must be equal or above
-	bcc draw_0_bar		; 12 and below
-	beq draw_1_bar		; 13
-	cmp #14
-	beq draw_2_bar		; 14
-	bne draw_3_bar		; 15, maximum level!
+do_pitch_index
+	lda pitch_offset,x	; get the pitch offset
+	tay			; transfer to Y
+	lda volume_level,x	; get the volume level, this is what will be drawn at the position defined by the pitch
+	pha			; push to the stack for the next step
+
+;	lda pitch_offset
+;	tay
+;	lda volume_level
+;	pha
+	
+index_line	
+	lda #0
+index_count equ *-1		; the index count used for the lines to draw is defined here
+	beq vol_12_to_15	; if the index is 0, free BEQ!
+	cmp #1
+	beq vol_8_to_11
+	cmp #2
+	beq vol_4_to_7		; if not equal, the last line is processed by default 
+
+vol_0_to_3
+	pla			; fetch the volume backup
+;	beq draw_0_bar		; 0
+	cmp #1			; must be equal or above
+	bcc draw_0_bar
+	beq draw_1_bar		; 1
+	cmp #2
+	beq draw_2_bar		; 2
+	cmp #3
+	beq draw_3_bar		; 3
+	bne draw_4_bar 		; 4 and above, must display all 4 bars 
+vol_4_to_7
+	pla			; fetch the volume backup
+;	beq draw_0_bar		; 4 and below
+	cmp #5			; must be equal or above
+	bcc draw_0_bar
+	beq draw_1_bar		; 5
+	cmp #6
+	beq draw_2_bar		; 6
+	cmp #7
+	beq draw_3_bar		; 7
+	bne draw_4_bar		; 8 and above, must display all 4 bars	
 vol_8_to_11
+	pla			; fetch the volume backup
+;	beq draw_0_bar		; 8 and below
 	cmp #9			; must be equal or above
-	bcc draw_0_bar		; 8 and below
+	bcc draw_0_bar
 	beq draw_1_bar		; 9
 	cmp #10
 	beq draw_2_bar		; 10
 	cmp #11
 	beq draw_3_bar		; 11
 	bne draw_4_bar		; 12 and above, must display all 4 bars
-vol_4_to_7
-	cmp #5			; must be equal or above
-	bcc draw_0_bar		; 4 and below
-	beq draw_1_bar		; 5
-	cmp #6
-	beq draw_2_bar		; 6
-	cmp #7
-	beq draw_3_bar		; 7
-	bne draw_4_bar		; 8 and above, must display all 4 bars
-vol_0_to_3
-	cmp #1			; must be equal or above
-	bcc draw_0_bar		; 0
-	beq draw_1_bar		; 1
-	cmp #2
-	beq draw_2_bar		; 2
-	cmp #3
-	beq draw_3_bar		; 3
-				
-draw_4_bar			; 4 and above, must display all 4 bars
-	lda #5
-	bne draw_line1
+vol_12_to_15 
+	pla			; fetch the volume backup
+;	beq draw_0_bar		; 12 and below
+	cmp #13			; must be equal or above
+	bcc draw_0_bar
+	beq draw_1_bar		; 13
+	cmp #14
+	beq draw_2_bar		; 14
+;	bne draw_3_bar		; 15, maximum level!
+
 draw_3_bar
 	lda #27
+	bne draw_line1
+draw_4_bar			
+	lda #5
 	bne draw_line1
 draw_2_bar
 	lda #60
 	bne draw_line1
 draw_1_bar
-	lda #63
+	lda #63 
 	bne draw_line1
 draw_0_bar
 	lda #0
-
 draw_line1
 	ora #0
-colour_bar equ *-1
+colour_bar equ *-1 
 	sta (DISPLAY),y
+	
+;	jmp begin_next	; test
+	
 draw_line1_a
-	iny
-	cpy #TRACKS
-	bne begindraw2
+	inx
+	cpx #TRACKS
+	bne do_pitch_index	; process the next channel's values
 	
 begin_next
-	inx
-	cpx #4
-	beq finishedloop
+	inc index_count
+	lda index_count
+	cmp #4
+	beq finishedloop	; all channels were done if equal
+	tax			; temporary backup of index
 	
 goloopagain
-	lda DISPLAY
-	add #20
-	sta DISPLAY
-	scc:inc DISPLAY+1
+	lda DISPLAY		; current memory address used for the process
+	add #20			; mode 6 uses 20 characters 
+	sta DISPLAY		; adding 20 will move the pointer to the next line
+	scc:inc DISPLAY+1	; in case the boundary is crossed, the pointer MSB will increment as well
 verify_line
 	cpx #3
 	bcc change_line23	; below 3 
 change_line4
-	lda #$00 
+	lda #$00 		; change the colour to yellow 
 	beq colour_changed 
 change_line23 
-	lda #$40
+	lda #$40		; change the colour to green 
 colour_changed
-	sta colour_bar		; change the colour to green 
-	jmp begindraw1 
+	sta colour_bar		; new colour is set for the next line
+	ldx #0			; reset the channel index
+	jmp do_pitch_index 	; repeat the process for the next line until all lines were drawn  
+	
+volume_level
+	:8 dta $00
+pitch_offset
+	:8 dta $00 
 
 finishedloop
 	
