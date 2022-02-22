@@ -508,59 +508,50 @@ v_ord	equ *-1
 begindraw
 	mwa #mode_6+2 DISPLAY	; set the position on screen, offset by 2 in order to be centered
 	lda #$c0		; change the colour to red 
-	sta colour_bar
-begindraw1 
-	lda #0			; empty character
-	tay			; also set Y to 0
-	tax			; also set X to 0
-begindraw1a
-	sta (DISPLAY),y		; clear the screen before drawing the VU Meter
-	iny
-	cpy #78			; 4x20 characters, minus 2 due to the offset in the pointer
-	bne begindraw1a		; repeat this process until all tiles have been cleared
-begindraw2
+	sta colour_bar 
+	ldx #TRACKS-1
+begindraw1
 	lda trackn_audc,x	; channel volume and distortion
 	and #$0F
 	sta volume_level,x	; temporary values, for the volume level
-	inx
-	cpx #TRACKS		; how many channels?
-	bne begindraw2		; get all bytes first
-	dex			; proper channel index
-begindraw3
+	dex
+	bpl begindraw1		; get all bytes first
+	ldx #TRACKS-1 
+begindraw2
 	lda trackn_audf,x	; channel frequency
 	eor #$FF		; invert the value, the pitch goes from lowest to highest from the left side
 	:4 lsr @		; divide by 16
 	sta pitch_offset,x	; temporary values, for the VU Meter  
 	dex			; decrease since we got the number of channels just a moment ago
-	bpl begindraw3		; keep going until all channels are done, X will be 0 afterwards for the next step 
-	inx			; proper channel index
-	stx index_count		; X = 0, this resets the index, so we're on the first mode 6 line to draw
+	bpl begindraw2		; keep going until all channels are done, X will be 0 afterwards for the next step 
+	ldx #TRACKS-1
 	
 do_pitch_index
 	lda pitch_offset,x	; get the pitch offset
 	tay			; transfer to Y
 	lda volume_level,x	; get the volume level, this is what will be drawn at the position defined by the pitch
-	pha			; push to the stack for the next step
-
-;	lda pitch_offset
-;	tay
-;	lda volume_level
-;	pha
+	cmp decay_buffer,y	; what is the volume level in memory?
+	bcc reset_decay_a	; equal and above will reset the volume, else it will be ignored
+reset_decay
+	sta decay_buffer,y	; write the new value in memory, the decay is reset for this column
+reset_decay_a
+	dex
+	bpl do_pitch_index	; repeat until all channels are done 
+	inx 			; line index = 0, for a total of 4 lines 
 	
-index_line	
-	lda #0
-index_count equ *-1		; the index count used for the lines to draw is defined here
-	beq vol_12_to_15	; if the index is 0, free BEQ!
-	cmp #1
-	beq vol_8_to_11
-	cmp #2
-	beq vol_4_to_7		; if not equal, the last line is processed by default 
+do_index_line
+	ldy #15			; 16 columns, including 0 
+do_index_line_a
+	lda decay_buffer,y	; volume value in the corresponding column 
+	cpx #1
+	bcc vol_12_to_15	; X = 0
+	beq vol_8_to_11		; X = 1
+	cpx #2
+	beq vol_4_to_7		; X = 2, else, the last line is processed by default 
 
 vol_0_to_3
-	pla			; fetch the volume backup
-;	beq draw_0_bar		; 0
 	cmp #1			; must be equal or above
-	bcc draw_0_bar
+	bcc draw_0_bar		; overwrite with a blank tile, always
 	beq draw_1_bar		; 1
 	cmp #2
 	beq draw_2_bar		; 2
@@ -568,10 +559,9 @@ vol_0_to_3
 	beq draw_3_bar		; 3
 	bne draw_4_bar 		; 4 and above, must display all 4 bars 
 vol_4_to_7
-	pla			; fetch the volume backup
-;	beq draw_0_bar		; 4 and below
 	cmp #5			; must be equal or above
-	bcc draw_0_bar
+;	bcc draw_nothing	; nothing to draw
+	bcc draw_0_bar		; overwrite with a blank tile, always
 	beq draw_1_bar		; 5
 	cmp #6
 	beq draw_2_bar		; 6
@@ -579,10 +569,9 @@ vol_4_to_7
 	beq draw_3_bar		; 7
 	bne draw_4_bar		; 8 and above, must display all 4 bars	
 vol_8_to_11
-	pla			; fetch the volume backup
-;	beq draw_0_bar		; 8 and below
 	cmp #9			; must be equal or above
-	bcc draw_0_bar
+;	bcc draw_nothing	; nothing to draw
+	bcc draw_0_bar		; overwrite with a blank tile, always
 	beq draw_1_bar		; 9
 	cmp #10
 	beq draw_2_bar		; 10
@@ -590,10 +579,9 @@ vol_8_to_11
 	beq draw_3_bar		; 11
 	bne draw_4_bar		; 12 and above, must display all 4 bars
 vol_12_to_15 
-	pla			; fetch the volume backup
-;	beq draw_0_bar		; 12 and below
 	cmp #13			; must be equal or above
-	bcc draw_0_bar
+;	bcc draw_nothing	; nothing to draw
+	bcc draw_0_bar		; overwrite with a blank tile, always 
 	beq draw_1_bar		; 13
 	cmp #14
 	beq draw_2_bar		; 14
@@ -616,27 +604,22 @@ draw_0_bar
 draw_line1
 	ora #0
 colour_bar equ *-1 
-	sta (DISPLAY),y
+	sta (DISPLAY),y 
+draw_nothing 
+	dey
+	bpl do_index_line_a	; continue until all columns were read
 	
-;	jmp begin_next	; test
-	
-draw_line1_a
+begin_next 
 	inx
-	cpx #TRACKS
-	bne do_pitch_index	; process the next channel's values
-	
-begin_next
-	inc index_count
-	lda index_count
-	cmp #4
-	beq finishedloop	; all channels were done if equal
-	tax			; temporary backup of index
+	cpx #4
+	beq finishedloop	; all channels were done if equal 
 	
 goloopagain
 	lda DISPLAY		; current memory address used for the process
 	add #20			; mode 6 uses 20 characters 
 	sta DISPLAY		; adding 20 will move the pointer to the next line
 	scc:inc DISPLAY+1	; in case the boundary is crossed, the pointer MSB will increment as well
+	
 verify_line
 	cpx #3
 	bcc change_line23	; below 3 
@@ -646,16 +629,26 @@ change_line4
 change_line23 
 	lda #$40		; change the colour to green 
 colour_changed
-	sta colour_bar		; new colour is set for the next line
-	ldx #0			; reset the channel index
-	jmp do_pitch_index 	; repeat the process for the next line until all lines were drawn  
+	sta colour_bar		; new colour is set for the next line 
+	jmp do_index_line 	; repeat the process for the next line until all lines were drawn  
 	
 volume_level
 	:8 dta $00
 pitch_offset
 	:8 dta $00 
+decay_buffer
+	:16 dta $00
 
 finishedloop
+	lda #0 			; reset value if needed
+	ldx #15			; 16 columns index, including 0 
+decay_again
+	dec decay_buffer,x	; decrement by 1, for the next VBI 
+	bpl decay_next		; if not negative, process the next column 
+	sta decay_buffer,x	; else, write 0 to it
+decay_next
+	dex			; next column index
+	bpl decay_again		; repeat until all columns were done 
 	
 ;-----------------
 
