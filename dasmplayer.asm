@@ -425,8 +425,7 @@ stopmusic
 
 continue			; do everything else during VBI after the keyboard checks
 
-; calculate time 
-
+calculate_time 
 	dec v_frame		; decrement the frame counter
 	bne notimetolose	; not 0 -> a second did not yet pass
 	lda #0
@@ -460,25 +459,34 @@ notimetolose
 	
 ; get the right screen position
 	mwa #line_0 DISPLAY
-	
-; print seconds
-	ldy #38
-	lda v_second
-	jsr printhex_direct
 
 ; print minutes
-	ldy #35
+	ldy #48
 	lda v_minute
 	jsr printhex_direct
 	
+; print seconds
+	ldy #50
+	ldx v_second
+	txa
+	and #1
+	beq blink
+	lda #":"-$20
+blink
+	sta (DISPLAY),y 
+	iny 
+done_blink
+	txa
+	jsr printhex_direct
+
 ; print order	
-	ldy #70
+	ldy #68
 	lda #0
 v_ord	equ *-1
 	jsr printhex_direct
 	
 ; print row
-	ldy #78
+	ldy #76
 	lda v_abeat
 	jsr printhex_direct
 	
@@ -667,17 +675,17 @@ txt_VBI
 dlist       
 	:5 dta $70
 	dta $42,a(line_0)	; ANTIC mode 2
-	dta $02
 	:3 dta $70
 	dta $46,a(mode_6)	; ANTIC mode 6, 20 characters wide
-	:4 dta $06		
-	:1 dta $70
-	dta $42,a(line_1)	; ANTIC mode 2
-	dta $02,$02
+	:3 dta $06 
+	:1 dta $02		; middle line is mode 2
+	dta $42,a(line_0a)	; ANTIC mode 2
+	:2 dta $70
+	:3 dta $02
 	dta $42			
 txt_toggle
 	dta a(line_4)		; memory address set to line_4 by default, or line_5 when SHIFT is held
-	:6 dta $70
+	:5 dta $70
 	dta $42,a(line_6)	; 1 final line of mode 2
 	dta $41,a(dlist)	; Jump and wait for vblank, return to dlist
 	
@@ -699,20 +707,20 @@ oldvbi
 
 	org $A000		; must be at this memory address 
 
-line_0	dta d"                             Time: 00:00"
-line_0a	dta d"                       Order: 00 Row: 00"
+line_0	dta d"                                        "
+line_0a	dta d"  Time: 00:00        Order: 00 Row: 00  "
 
-;line_1	dta d"Line 1                                  "
-;line_2	dta d"Line 2                                  "
-;line_3	dta d"Line 3                                  "
-;line_4	dta d"Line 4 (hold SHIFT to toggle)           "
-;line_5	dta d"Line 5 (SHIFT is being held right now)  "
+line_1	dta d"Line 1                                  "
+line_2	dta d"Line 2                                  "
+line_3	dta d"Line 3                                  "
+line_4	dta d"Line 4 (hold SHIFT to toggle)           "
+line_5	dta d"Line 5 (SHIFT is being held right now)  "
 
-line_1	dta d"Temple of Questions (Sketch 24.rmt)     "
-line_2	dta d"Another stupid idea by VinsCool...      "
-line_3	dta d"Nice volume bars, eh? That was fun...   "
-line_4	dta d"                                        "
-line_5	dta d"Tuez-moi, s'il vous plait... hgdhwjhdhwc"
+;line_1	dta d"Temple of Questions (Sketch 24.rmt)     "
+;line_2	dta d"Another stupid idea by VinsCool...      "
+;line_3	dta d"Nice volume bars, eh? That was fun...   "
+;line_4	dta d"                                        "
+;line_5	dta d"Tuez-moi, s'il vous plait... hgdhwjhdhwc"
 
 ;
 
@@ -721,16 +729,12 @@ mode_6a	dta d"                    "
 mode_6b	dta d"                    "
 mode_6c	dta d"                    "
 
-;mode_6d	dta d"      12345678      "
+;mode_6d	dta d"  ????????????????  " 
 
-	IFT TRACKS>4
-mode_6d	dta $00,$00,$00,$00,$00,$00,$51,$52,$53,$54,$55,$56,$57,$58,$00,$00,$00,$00,$00,$00
-	ELS
-mode_6d	dta $00,$00,$00,$00,$00,$00,$00,$00,$51,$52,$53,$54,$00,$00,$00,$00,$00,$00,$00,$00
-	EIF
+mode_2d dta $43,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$41 
 
 ;
-
 
 line_6	dta d"VinsCool, 2022                          "
 
