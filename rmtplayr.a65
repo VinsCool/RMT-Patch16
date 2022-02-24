@@ -394,9 +394,9 @@ nn0
 nn0_a
 	IFT FEAT_IS_SIMPLEP
 	IFT EXPORTXEX			; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
-	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
-	add #16				; offset the value by #$10 for a simple colour shuffle
-	sta loop+1   			; store back where it was loaded, overwriting the previous value
+;	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
+;	add #16				; offset the value by #$10 for a simple colour shuffle
+;	sta loop+1   			; store back where it was loaded, overwriting the previous value
 	lda p_song			; calculate the songline? why such an elaborate setup tho?
 	sub MODUL+14 
 	sta v_ord 

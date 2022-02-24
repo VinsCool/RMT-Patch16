@@ -21,7 +21,7 @@ EXPORTSAP	equ 0
 
 ; starting line for songs when loaded, useful for playing from different lines or subtunes
 
-STARTLINE	equ 0 
+STARTLINE	equ 0
 
 ; playback speed will be adjusted accordingly in the other region
 
@@ -62,6 +62,11 @@ VLINE		equ 7		; nice round numbers fit well with multiples of 8 for every xVBI..
 
 RASTERBAR	equ $69		; $69 is a nice purpleish hue
 
+; VU Meter decay rate and speed
+
+RATE		equ 1		; set the amount of volume decay is done, 0 is no decay, 15 is instant
+SPEED		equ 1		; set the speed of decay rate, 0 is no decay, 255 is the highest amount of delay (in frames) 
+
 ; some memory addresses
 
 DISPLAY equ $FE			; zeropage address of the Display List indirect memory address
@@ -77,6 +82,7 @@ COLOR1	equ $02C5
 COLOR2	equ $02C6
 COLOR3	equ $02C7
 COLOR4	equ $02C8
+CH1	equ $02F2
 CH	equ $02FC
 PAL	equ $D014
 COLPF0	equ $D016
@@ -164,7 +170,7 @@ subtune
 
 ; assemble Simple RMT Player here... 
 	
-	org $3C00		; may become $3D00 instead of $3E00 due to the extra VBI checks going
+	org $3B00		; at some point this will no longer fit...
 start       
 	ldx #0			; disable playfield and the black colour value
 	stx SDMCTL		; write to Shadow Direct Memory Access Control address
@@ -276,21 +282,26 @@ check_region
 	ELI REGIONPLAYBACK==1	; else, if the player region defined for NTSC...
 	bmi region_done		; positive result means the machine runs at 50hz
 
-	ldx #185		; PAL is detected, adjust the speed from NTSC to PAL
+	ldx #186		; PAL is detected, adjust the speed from NTSC to PAL
 	lda instrspeed		; what value did RMT return again?
 	cmp #1
 	beq subonetotiming	; 1xVBI is stable if 1 is subtracted from the value, 186 must be used!
 	cmp #2
-	beq region_done		; 2xVBI is stable without a subtraction
+	beq subfourtotiming	; 2xVBI is stable if 4 is subtracted from the value, 185 must be used!
 	cmp #3
 	beq region_done		; 3xVBI is stable without a subtraction
 	cmp #4
 	beq subtwototiming	; 4xVBI is stable if 2 is subtracted from the value, 185 must be used!
 
+subfourtotiming
+;	ldx #185
+	dec acpapx2		; stabilise NTSC timing in PAL mode
+
 subthreetotiming
 	dec acpapx2		; stabilise NTSC timing in PAL mode
 	
 subtwototiming
+	ldx #185
 	dec acpapx2		; stabilise NTSC timing in PAL mode	
 subonetotiming
 	dec acpapx2		; stabilise NTSC timing in PAL mode
@@ -319,6 +330,15 @@ instrspeed 	equ *-1
 	dey			; Y = 4 here, no need to reload it
 	sta (DISPLAY),y 
 	mva:rne txt_VBI-1,y line_0+5,y-
+	
+	lda MODUL+3		; RMT4 or RMT8?
+	cmp #$34
+	beq is_rmt4		; RMT4 if equal, nothing to do
+	
+is_rmt8
+	ldy #8			; 8 characters buffer
+	mva:rne txt_VBI+4,y line_0+10,y-
+is_rmt4
 	
 ;-----------------
 	
@@ -355,6 +375,7 @@ wait_sync
 
 loop
 	ldy #RASTERBAR		; custom rasterbar colour
+rasterbar_colour equ *-1
 acpapx1
 	lda spap
 	ldx #0
@@ -382,9 +403,18 @@ acpapx2	equ *-1
 	scs:inx
 	stx cku
 play_loop
-	sty WSYNC		; horizontal sync
+	sty WSYNC		; horizontal sync 
+check_play_flag	
+	lda is_playing_flag 
+	beq check_rasterbar_flag
+	jmp check_play_flag 	
+check_rasterbar_flag
+	lda #0
+rasterbar_toggler equ *-1
+	bpl do_rmtplay		; a positive value means the rasterbar is not displayed 
 	sty COLBK		; background colour
 	sty COLPF2		; playfield colour 2
+do_rmtplay
 	jsr rmt_play		; setpokey + 1 play
 	ldy #$00		; black colour value
 	sty WSYNC		; horizontal sync
@@ -398,17 +428,60 @@ play_loop
 
 vbi
 	sta WSYNC		; horizontal sync, so we're always on the exact same spot
+	ldy KBCODE		; Keyboard Code  
 	ldx <line_4		; line 4 of text
 	lda SKSTAT		; Serial Port Status
 	and #$08		; SHIFT key being held?
 	bne set_line_4		; nope, skip the next ldx
-	ldx <line_5		; line 5 of text (toggled by SHIFT)
+	ldx <line_5		; line 5 of text (toggled by SHIFT) 
+	tya
+	eor #$40		; invert the SHIFT key flag so it will be ignored later
+	tay
 set_line_4  
-	stx txt_toggle		; write to change the text on line 4
-	lda KBCODE		; Keyboard Code
-	cmp #$1C		; ESCape key?
-	bne continue		; nope => loop
+	stx txt_toggle		; write to change the text on line 4 
 	
+check_key_pressed 	
+	lda SKSTAT		; Serial Port Status
+	and #$04		; last key still pressed?
+	beq check_key_pressed_a	; yes if equal
+	jmp continue		; if not, nothing else to do here 
+check_key_pressed_a
+	ldx #0
+held_key_flag equ *-1
+	bpl check_keys
+	jmp continue_b		; a key is being held... skip ahead immediately 
+	
+check_keys
+	; check all keys that have a purpose here... 
+	
+check_key_space
+	cpy #$21		; Spacebar?
+	beq toggle_rasterbar	; yes => toggle the rasterbar display 
+	
+;check_key_1
+;	cpy #$1F		; 1 key?
+;	beq dec_rasterbar_colour
+	
+;check_key_2
+;	cpy #$1E		; 2 key?
+;	beq inc_rasterbar_colour
+	
+check_key_left
+	cpy #$06
+	beq dec_songline_seek
+
+check_key_right
+	cpy #$07
+	beq inc_songline_seek
+	
+check_key_p
+	cpy #$0A
+	beq play_pause_toggle
+	
+check_key_esc 
+	cpy #$1C		; ESCape key? 
+	bne continue		; nope => loop 
+
 ;-----------------
 	
 stopmusic 
@@ -423,7 +496,91 @@ stopmusic
 
 ;-----------------
 
-continue			; do everything else during VBI after the keyboard checks
+; rasterbar_colour
+
+;dec_rasterbar_colour
+;	dec rasterbar_colour
+;	dex 			; 0 -> FF 
+;	bmi continue_a		; skip ahead and set the held key flag! 
+
+;inc_rasterbar_colour
+;	inc rasterbar_colour
+;	dex    			; 0 -> FF 
+;	bmi continue_a		; skip ahead and set the held key flag! 
+
+;-----------------
+
+; RMT Play/Pause
+
+play_pause_toggle
+	lda #0
+is_playing_flag equ *-1
+	bpl set_pause		; if positive, it is playing, else, it is already paused
+set_play
+	inc is_playing_flag	; FF -> 00 
+	beq set_held_key_flag	; done 
+set_pause
+	jsr rmt_silence		; pause the player 
+	lda #0
+	ldy #TRACKS-1
+set_pause_a
+	sta trackn_audc,y
+	dey 
+	bpl set_pause_a
+	dec is_playing_flag	; 00 -> FF
+	bmi set_held_key_flag	; done
+
+;-----------------
+
+songline_seek
+
+dec_songline_seek
+	ldy MODUL+15		; songline pointer MSB
+	ldx MODUL+14		; songline pointer LSB 
+
+	lda p_song
+	sub #TRACKS+TRACKS	; once -> same line plays again, so subtract twice this number!
+	sta p_song 
+	scs:dec p_song+1	; in case the boundary is crossed, the pointer MSB will increment as well
+	
+dec_songline_seek_a
+	cpy p_song+1		; compare the p_song MSB to the one from the module
+	bcs dec_songline_seek_b	; if the module value is lower, everything is mostly fine... do an extra check before!
+	sty p_song+1		; else, revert the changes to it 
+
+dec_songline_seek_b
+	cpx p_song		; compare the p_song LSB to the one from the module
+	bcc dec_songline_seek_c	; if the module value is lower, everything is fine
+	stx p_song 		; overwrite the earlier changes to it	
+	
+dec_songline_seek_c
+	
+	; uhhh..... extra check necessary here! Things appear to work ok but this is not perfect, it could jump to garbage!
+	
+inc_songline_seek
+	jsr GetSongLine		; hopefully this will work...
+	ldx #$FF
+	bmi continue_a		; skip ahead and set the held key flag! 
+
+;-----------------
+	
+toggle_rasterbar 
+	lda rasterbar_toggler	; rasterbar flag, a negative value means the rasterbar display is active 
+	eor #$FF		; invert bits 
+	sta rasterbar_toggler	; overwrite the rasterbar flag, execution continues like normal from here 
+	
+;-----------------
+
+set_held_key_flag
+	dex			; 0 -> FF 
+	bmi continue_a		; skip ahead and set the held key flag! 
+continue			; do everything else during VBI after the keyboard checks 
+	ldx #0			; reset the held key flag! 
+continue_a 			; a new held key flag is set when jumped directly here
+	stx held_key_flag
+continue_b 			; a key was detected as held when jumped directly here
+
+;-----------------
 
 calculate_time 
 	dec v_frame		; decrement the frame counter
@@ -439,6 +596,7 @@ addasecond
 	sed			; set decimal flag first
 	lda #0
 v_second equ *-1
+	clc			; clear the carry flag first, the keyboard code could mess with this part now...
 	adc #1			; carry flag is clear, add 1 directly
 	sta v_second
 	cmp #$60		; 60 seconds, must be a HEX value!
@@ -490,6 +648,20 @@ v_ord	equ *-1
 	lda v_abeat
 	jsr printhex_direct
 	
+	
+;;;;
+;
+; print decay rate and speed, DEBUG CODE!!!!
+;	ldy #28
+;	lda #RATE
+;	jsr printhex_direct
+;	
+;	ldy #38
+;	lda #SPEED
+;	jsr printhex_direct 
+;
+;;;;	
+	
 ;-----------------
 	
 ; draw the volume blocks
@@ -510,39 +682,62 @@ begindraw
 	lda #$c0		; change the colour to red 
 	sta colour_bar 
 	ldx #TRACKS-1
+	
+;	; debug code!!!!
+;	lda #0
+;	ldy #80
+;debug_draw
+;	sta (DISPLAY),y 
+;	iny
+;	cpy #116
+;	bne debug_draw 
+;	; end debug!!!
+	
 begindraw1
 	lda trackn_audc,x	; channel volume and distortion
 	and #$0F
-	sta volume_level,x	; temporary values, for the volume level
-	dex
-	bpl begindraw1		; get all bytes first
-	ldx #TRACKS-1 
+	beq reset_decay_a	; 0 = no volume to write into the buffer
+	sta temp_volume		; self modifying code
+	
 begindraw2
 	lda trackn_audf,x	; channel frequency
 	eor #$FF		; invert the value, the pitch goes from lowest to highest from the left side
 	:4 lsr @		; divide by 16
-	sta pitch_offset,x	; temporary values, for the VU Meter  
-	dex			; decrease since we got the number of channels just a moment ago
-	bpl begindraw2		; keep going until all channels are done, X will be 0 afterwards for the next step 
-	ldx #TRACKS-1
-	
-do_pitch_index
-	lda pitch_offset,x	; get the pitch offset
 	tay			; transfer to Y
-	lda volume_level,x	; get the volume level, this is what will be drawn at the position defined by the pitch
+
+;	; more debug code!!!
+;	:3 lsr @ 
+;	pha
+;	add #82
+;	tay
+;	lda hexchars,x 
+;	sta (DISPLAY),y 
+;	pla
+;	lsr @
+;	tay
+;	; end debug!!!
+	
+begindraw3 
+	lda #0
+temp_volume equ *-1		; to hopefully speed up the operations without clogging more bytes
 	cmp decay_buffer,y	; what is the volume level in memory?
-	bcc reset_decay_a	; equal and above will reset the volume, else it will be ignored
+	bcc reset_decay_a	; below the value in memory will be ignored
+	beq reset_decay_a	; equal will also be ignored, no point using the same value twice 
 reset_decay
-	sta decay_buffer,y	; write the new value in memory, the decay is reset for this column
+	sta decay_buffer,y	; if above the buffer value, write the new value in memory, the decay is now reset for this column
 reset_decay_a
 	dex
-	bpl do_pitch_index	; repeat until all channels are done 
-	inx 			; line index = 0, for a total of 4 lines 
+	bpl begindraw1		; repeat until all channels are done 
 	
-do_index_line
+do_index_line	
+	inx 			; line index = 0, for a total of 4 lines 
 	ldy #15			; 16 columns, including 0 
+	
 do_index_line_a
 	lda decay_buffer,y	; volume value in the corresponding column 
+	beq draw_nothing	; a value of 0 is immediately drawing a blank tile on screen 
+	
+do_index_line_b
 	cpx #1
 	bcc vol_12_to_15	; X = 0
 	beq vol_8_to_11		; X = 1
@@ -550,68 +745,65 @@ do_index_line_a
 	beq vol_4_to_7		; X = 2, else, the last line is processed by default 
 
 vol_0_to_3
+	cmp #4
+	bcs draw_4_bar 
 	cmp #1			; must be equal or above
-	bcc draw_0_bar		; overwrite with a blank tile, always
 	beq draw_1_bar		; 1
 	cmp #2
 	beq draw_2_bar		; 2
-	cmp #3
-	beq draw_3_bar		; 3
-	bne draw_4_bar 		; 4 and above, must display all 4 bars 
+	bne draw_3_bar
+	
 vol_4_to_7
+	cmp #8
+	bcs draw_4_bar 	
 	cmp #5			; must be equal or above
-;	bcc draw_nothing	; nothing to draw
 	bcc draw_0_bar		; overwrite with a blank tile, always
 	beq draw_1_bar		; 5
 	cmp #6
 	beq draw_2_bar		; 6
-	cmp #7
-	beq draw_3_bar		; 7
-	bne draw_4_bar		; 8 and above, must display all 4 bars	
+	bne draw_3_bar
+	
 vol_8_to_11
+	cmp #12
+	bcs draw_4_bar
 	cmp #9			; must be equal or above
-;	bcc draw_nothing	; nothing to draw
 	bcc draw_0_bar		; overwrite with a blank tile, always
 	beq draw_1_bar		; 9
 	cmp #10
 	beq draw_2_bar		; 10
-	cmp #11
-	beq draw_3_bar		; 11
-	bne draw_4_bar		; 12 and above, must display all 4 bars
+	bne draw_3_bar
+	
 vol_12_to_15 
+	cmp #15
+	beq draw_3_bar
 	cmp #13			; must be equal or above
-;	bcc draw_nothing	; nothing to draw
 	bcc draw_0_bar		; overwrite with a blank tile, always 
-	beq draw_1_bar		; 13
-	cmp #14
-	beq draw_2_bar		; 14
-;	bne draw_3_bar		; 15, maximum level!
+	beq draw_1_bar		; 13 
 
+draw_2_bar
+	lda #60
+	bne draw_line1
 draw_3_bar
 	lda #27
 	bne draw_line1
 draw_4_bar			
 	lda #5
 	bne draw_line1
-draw_2_bar
-	lda #60
-	bne draw_line1
-draw_1_bar
-	lda #63 
-	bne draw_line1
 draw_0_bar
 	lda #0
+	beq draw_nothing
+draw_1_bar
+	lda #63 
+
 draw_line1
 	ora #0
 colour_bar equ *-1 
+
+draw_nothing
 	sta (DISPLAY),y 
-draw_nothing 
 	dey
 	bpl do_index_line_a	; continue until all columns were read
-	
-begin_next 
-	inx
-	cpx #4
+	cpx #3
 	beq finishedloop	; all channels were done if equal 
 	
 goloopagain
@@ -621,34 +813,44 @@ goloopagain
 	scc:inc DISPLAY+1	; in case the boundary is crossed, the pointer MSB will increment as well
 	
 verify_line
-	cpx #3
-	bcc change_line23	; below 3 
+	cpx #1
+	bcc change_line23	; below 1 
 change_line4
-	lda #$00 		; change the colour to yellow 
-	beq colour_changed 
-change_line23 
 	lda #$40		; change the colour to green 
+	bne colour_changed 
+change_line23 
+	lda #$00 		; change the colour to yellow 
 colour_changed
 	sta colour_bar		; new colour is set for the next line 
 	jmp do_index_line 	; repeat the process for the next line until all lines were drawn  
 	
-volume_level
-	:8 dta $00
-pitch_offset
-	:8 dta $00 
 decay_buffer
-	:16 dta $00
+	:16 dta $00 
+decay_speed
+	dta SPEED		; set the speed of decay rate, 0 is no decay, 255 is the highest amount of delay (in frames) 
 
 finishedloop
-	lda #0 			; reset value if needed
+	ldy #0 			; reset value if needed
 	ldx #15			; 16 columns index, including 0 
-decay_again
-	dec decay_buffer,x	; decrement by 1, for the next VBI 
-	bpl decay_next		; if not negative, process the next column 
+	
+do_decay
+	dec decay_speed
+	bpl decay_done		; if value is positive, it's over, wait for the next frame 
+reset_decay_speed
+	lda #SPEED
+	sta decay_speed		; reset the value in memory, for the next cycle
+decay_again 
+	lda decay_buffer,x
+	beq decay_next		; 0 equals no decay 
+	sub #RATE 
+	bpl decay_again_a	; if positive, write the value in memory 
+	tya
+decay_again_a
 	sta decay_buffer,x	; else, write 0 to it
 decay_next
 	dex			; next column index
 	bpl decay_again		; repeat until all columns were done 
+decay_done
 	
 ;-----------------
 
@@ -703,7 +905,7 @@ txt_NTSC
 txt_PAL
         dta d"PAL"*,d" "
 txt_VBI
-	dta d"xVBI"
+	dta d"xVBI (Stereo)"
         
 ;-----------------
         
@@ -745,6 +947,9 @@ oldvbi
 	org $A000		; must be at this memory address 
 
 line_0	dta d"                                        "
+
+;line_0	dta d"                Decay Rate: 00 Speed: 00"
+
 line_0a	dta d"  Time: 00:00        Order: 00 Row: 00  "
 
 line_1	dta d"Line 1                                  "
@@ -753,11 +958,11 @@ line_3	dta d"Line 3                                  "
 line_4	dta d"Line 4 (hold SHIFT to toggle)           "
 line_5	dta d"Line 5 (SHIFT is being held right now)  "
 
-;line_1	dta d"Temple of Questions (Sketch 24.rmt)     "
-;line_2	dta d"Another stupid idea by VinsCool...      "
-;line_3	dta d"Nice volume bars, eh? That was fun...   "
-;line_4	dta d"                                        "
-;line_5	dta d"Tuez-moi, s'il vous plait... hgdhwjhdhwc"
+;line_1	dta d"Now playing...                          "
+;line_2	dta d"Flob - Escape from the Lab              "
+;line_3	dta d"It's a really cool game too! Try it!    "
+;line_4	dta d"Testing my VU Meter code, works nicely! "
+;line_5	dta d"I am also a fat blob, but shhh... :D    "
 
 ;
 
@@ -765,8 +970,6 @@ mode_6	dta d"                    "
 mode_6a	dta d"                    "
 mode_6b	dta d"                    "
 mode_6c	dta d"                    "
-
-;mode_6d	dta d"  ????????????????  " 
 
 mode_2d dta $43,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
 	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$41 
