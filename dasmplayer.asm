@@ -583,6 +583,8 @@ continue_b 			; a key was detected as held when jumped directly here
 ;-----------------
 
 calculate_time 
+	lda is_playing_flag 
+	bmi notimetolose	; paused -> no time counter increment 
 	dec v_frame		; decrement the frame counter
 	bne notimetolose	; not 0 -> a second did not yet pass
 	lda #0
