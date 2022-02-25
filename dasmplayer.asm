@@ -4,7 +4,7 @@
 ;* Recreation from disassembled code            *;
 ;* Original version by Raster/C.P.U., 2003-2004 *;
 ;* Recreation by VinsCool                       *;
-;* Version 4, 14-02-2022                        *;
+;* Version 5, 25-02-2022                        *;
 ;************************************************;
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
@@ -25,7 +25,7 @@ STARTLINE	equ 0
 
 ; playback speed will be adjusted accordingly in the other region
 
-REGIONPLAYBACK	equ 1		; 0 => PAL
+REGIONPLAYBACK	equ 0		; 0 => PAL
 				; 1 => NTSC
 
 ; Stereo mode must be defined in 'rmt_feat.a65', in this case, this must be set to 1, otherwise, it will be defined here
@@ -443,9 +443,10 @@ set_line_4
 check_key_pressed 	
 	lda SKSTAT		; Serial Port Status
 	and #$04		; last key still pressed?
-	beq check_key_pressed_a	; yes if equal
-	jmp continue		; if not, nothing else to do here 
+	beq check_key_pressed_b	; yes if equal
 check_key_pressed_a
+	jmp continue		; if not, nothing else to do here 
+check_key_pressed_b
 	ldx #0
 held_key_flag equ *-1
 	bpl check_keys
@@ -453,11 +454,7 @@ held_key_flag equ *-1
 	
 check_keys
 	; check all keys that have a purpose here... 
-	
-check_key_space
-	cpy #$21		; Spacebar?
-	beq toggle_rasterbar	; yes => toggle the rasterbar display 
-	
+		
 ;check_key_1
 ;	cpy #$1F		; 1 key?
 ;	beq dec_rasterbar_colour
@@ -465,6 +462,10 @@ check_key_space
 ;check_key_2
 ;	cpy #$1E		; 2 key?
 ;	beq inc_rasterbar_colour
+	
+check_key_p
+	cpy #$0A
+	beq play_pause_toggle 	
 	
 check_key_left
 	cpy #$06
@@ -474,27 +475,16 @@ check_key_right
 	cpy #$07
 	beq inc_songline_seek
 	
-check_key_p
-	cpy #$0A
-	beq play_pause_toggle
+check_key_space
+	cpy #$21		; Spacebar?
+	beq toggle_rasterbar	; yes => toggle the rasterbar display 
 	
 check_key_esc 
 	cpy #$1C		; ESCape key? 
-	bne continue		; nope => loop 
+	bne check_key_pressed_a	; nope => loop 
+	jmp stopmusic		; else, it's over 
 
-;-----------------
-	
-stopmusic 
-	jsr rmt_silence		; stop RMT and reset the POKEY registers
-	mwa oldvbi VVBLKI	; restore the old vbi address
-	ldx #$00		; disable playfield 
-	stx SDMCTL		; write to Direct Memory Access (DMA) Control register
-	dex			; underflow to #$FF
-	stx CH			; write to the CH register, #$FF means no key pressed
-	jsr wait_vblank		; wait for vblank before continuing
-	jmp (DOSVEC)		; return to DOS, or Self Test by default
-
-;-----------------
+;----------------- 
 
 ; rasterbar_colour
 
@@ -512,15 +502,21 @@ stopmusic
 
 ; RMT Play/Pause
 
-play_pause_toggle
+play_pause_toggle 
 	lda #0
 is_playing_flag equ *-1
 	bpl set_pause		; if positive, it is playing, else, it is already paused
-set_play
+set_play 
+	ldx #$7C		; PLAY button character
+	ldy #8 			; 8 characters buffer
+	mva:rne txt_PLAY-1,y line_0e1-1,y- 
 	inc is_playing_flag	; FF -> 00 
-	beq set_held_key_flag	; done 
+	beq play_pause_button_toggle
 set_pause
 	jsr rmt_silence		; pause the player 
+	ldx #$7D		; PAUSE button character 
+	ldy #8 			; 8 characters buffer
+	mva:rne txt_PAUSE-1,y line_0e1-1,y- 
 	lda #0
 	ldy #TRACKS-1
 set_pause_a
@@ -528,7 +524,12 @@ set_pause_a
 	dey 
 	bpl set_pause_a
 	dec is_playing_flag	; 00 -> FF
-	bmi set_held_key_flag	; done
+play_pause_button_toggle
+	txa
+	ldy #247		; position on screen 
+	sta (DISPLAY),y 	; change the play button to a play button 
+	ldx #$FF
+	bmi continue_a		; skip ahead and set the held key flag! 	
 
 ;-----------------
 
@@ -618,15 +619,15 @@ notimetolose
 ;-----------------
 	
 ; get the right screen position
-	mwa #line_0 DISPLAY
+	mwa #line_0a DISPLAY 
 
 ; print minutes
-	ldy #48
+	ldy #8
 	lda v_minute
 	jsr printhex_direct
 	
 ; print seconds
-	ldy #50
+	ldy #10
 	ldx v_second
 	txa
 	and #1
@@ -640,13 +641,13 @@ done_blink
 	jsr printhex_direct
 
 ; print order	
-	ldy #68
+	ldy #28
 	lda #0
 v_ord	equ *-1
 	jsr printhex_direct
 	
 ; print row
-	ldy #76
+	ldy #36
 	lda v_abeat
 	jsr printhex_direct
 	
@@ -900,6 +901,18 @@ hexchars
         
 ;-----------------
 
+stopmusic 
+	jsr rmt_silence		; stop RMT and reset the POKEY registers
+	mwa oldvbi VVBLKI	; restore the old vbi address
+	ldx #$00		; disable playfield 
+	stx SDMCTL		; write to Direct Memory Access (DMA) Control register
+	dex			; underflow to #$FF
+	stx CH			; write to the CH register, #$FF means no key pressed
+	jsr wait_vblank		; wait for vblank before continuing
+	jmp (DOSVEC)		; return to DOS, or Self Test by default
+
+;----------------- 
+
 ; some plaintext data used in few spots
         
 txt_NTSC
@@ -908,26 +921,34 @@ txt_PAL
         dta d"PAL"*,d" "
 txt_VBI
 	dta d"xVBI (Stereo)"
+	
+txt_PLAY
+	dta $7C,$00 		; PLAY button
+	dta d"PLAY  "
+txt_PAUSE
+	dta $7D,$00 		; PAUSE button
+	dta d"PAUSE "
+txt_STOP
+	dta $7B,$00 		; STOP button
+	dta d"STOP  "
         
 ;-----------------
         
 ; Display list
 
 dlist       
-	:5 dta $70
-	dta $42,a(line_0)	; ANTIC mode 2
-	:3 dta $70
-	dta $46,a(mode_6)	; ANTIC mode 6, 20 characters wide
-	:3 dta $06 
-	:1 dta $02		; middle line is mode 2
-	dta $42,a(line_0a)	; ANTIC mode 2
-	:2 dta $70
-	:3 dta $02
+	:6 dta $70		; 6 empty lines
+	dta $42,a(line_0)	; ANTIC mode 2, for the first line of infos drawn on the screen 
+	dta $70			; 1 empty line
+	:4 dta $06		; ANTIC mode 6, 4 lines, for the volume bars
+	:7 dta $02		; all the middle part is back to mode 2, for all the infos and song buttons display 
+	dta $70			; 1 empty line
+	:3 dta $02		; 3 lines of user input text from RMT
 	dta $42			
 txt_toggle
 	dta a(line_4)		; memory address set to line_4 by default, or line_5 when SHIFT is held
-	:5 dta $70
-	dta $42,a(line_6)	; 1 final line of mode 2
+	:3 dta $70		; 3 empty lines
+	dta $42,a(line_6)	; 1 final line of mode 2, must have its own addressing or else the SHIFT toggle affects it 
 	dta $41,a(dlist)	; Jump and wait for vblank, return to dlist
 	
 ;-----------------
@@ -948,11 +969,64 @@ oldvbi
 
 	org $A000		; must be at this memory address 
 
-line_0	dta d"                                        "
-
+; DEBUG DATA!!!
+;
 ;line_0	dta d"                Decay Rate: 00 Speed: 00"
 
-line_0a	dta d"  Time: 00:00        Order: 00 Row: 00  "
+; topmost line, displays region and speed 
+
+line_0	dta d"                                        "
+
+; volume bars, mode 6, 4 lines
+
+mode_6	dta d"                    "
+mode_6a	dta d"                    "
+mode_6b	dta d"                    "
+mode_6c	dta d"                    "
+
+; topmost border, under the volume bars, back to mode 2
+
+mode_2d dta $43,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$41 
+
+; timer, order, row, etc display
+
+line_0a	dta $44
+	dta d" Time: 00:00        Order: 00 Row: 00 "
+	dta $44
+
+; top border
+
+line_0b dta $44,$43,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$41,$44
+
+; middle playback progress line
+
+line_0c dta $44,$44,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$44,$44
+
+; bottom border
+
+line_0d dta $44,$42,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$40,$44
+
+; subtunes display, and control buttons 
+
+line_0e	dta $44
+	dta d" Tune: 00/00   "
+line_0e1	
+	dta $7C,$00 				; PLAY button
+	dta d"PLAY   "
+;	dta d"SBRWPPFFSFSPEJ++ "		; buttons test
+	dta $58,$00,$7F,$00,$7C,$00,$7E,$00,$57,$00,$7B,$00,$56,$00 
+	dta $44
+
+; bottomest border
+
+line_0f dta $42,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$40
+
+; currently below the volume bars, mode 2, 5 lines, where 1 of them is swapped using the SHIFT key
 
 line_1	dta d"Line 1                                  "
 line_2	dta d"Line 2                                  "
@@ -960,25 +1034,10 @@ line_3	dta d"Line 3                                  "
 line_4	dta d"Line 4 (hold SHIFT to toggle)           "
 line_5	dta d"Line 5 (SHIFT is being held right now)  "
 
-;line_1	dta d"Now playing...                          "
-;line_2	dta d"Flob - Escape from the Lab              "
-;line_3	dta d"It's a really cool game too! Try it!    "
-;line_4	dta d"Testing my VU Meter code, works nicely! "
-;line_5	dta d"I am also a fat blob, but shhh... :D    "
+; version and credit
 
-;
-
-mode_6	dta d"                    "
-mode_6a	dta d"                    "
-mode_6b	dta d"                    "
-mode_6c	dta d"                    "
-
-mode_2d dta $43,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
-	dta $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$41 
-
-;
-
-line_6	dta d"VinsCool, 2022                          "
+line_6	dta d"VUPlayer by VinsCool                "
+	dta d"v0.1"* 
 
 ;-----------------
 
