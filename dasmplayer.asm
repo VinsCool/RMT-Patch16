@@ -478,12 +478,12 @@ check_key_space
 	jmp toggle_rasterbar 
 	
 check_key_p
-	cpy #$0A
-	beq play_pause_toggle 	
+;	cpy #$0A
+;	beq play_pause_toggle 	
 	
 check_key_s
-	cpy #$3E
-	beq stop_toggle 
+;	cpy #$3E
+;	beq stop_toggle 
 
 check_key_enter	
 	cpy #$0C
@@ -703,6 +703,11 @@ blink
 done_blink
 	txa
 	jsr printhex_direct
+
+; print speed
+	ldy #20
+	lda v_speed
+	jsr printhex_direct 
 
 ; print order	
 	ldy #28
@@ -1189,7 +1194,8 @@ mode_2d dta $43,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,
 ; timer, order, row, etc display
 
 line_0a	dta $44
-	dta d" Time: 00:00        Order: 00 Row: 00 "
+;	dta d" Time: 00:00        Order: 00 Row: 00 "
+	dta d" Time: 00:00  Spd: 00 Ord: 00 Row: 00 "
 	dta $44
 
 ; top border
