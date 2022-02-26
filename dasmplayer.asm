@@ -25,7 +25,7 @@ STARTLINE	equ 0
 
 ; playback speed will be adjusted accordingly in the other region
 
-REGIONPLAYBACK	equ 0		; 0 => PAL
+REGIONPLAYBACK	equ 1		; 0 => PAL
 				; 1 => NTSC
 
 ; Stereo mode must be defined in 'rmt_feat.a65', in this case, this must be set to 1, otherwise, it will be defined here
@@ -191,11 +191,7 @@ set_colours
 	
 ;-----------------
 		
-module_init	
-	ldx #<MODUL		; low byte of RMT module to X reg
-	ldy #>MODUL		; hi byte of RMT module to Y reg
-	lda #STARTLINE		; starting song line 0-255 to A reg
-	jsr rmt_init		; Init returns instrument speed (1..4 => from 1/screen to 4/screen)
+	jsr module_init 	; first initialise the player variables, initialisation returns instrument speed
 	tay			; use the instrument speed as an offset
 	
 ;-----------------
@@ -361,6 +357,9 @@ is_DONE
 	sty v_minute
 	stx v_frame		; X is either 50 or 60, defined by the region initialisation
 	stx framecount
+ready_to_play
+	ldy #7			; enough characters buffer, used to set the PLAY status display 
+	mva:rne txt_PLAY-1,y line_0e1-1,y- 
 
 ;------------------
 	
@@ -405,9 +404,10 @@ acpapx2	equ *-1
 play_loop
 	sty WSYNC		; horizontal sync 
 check_play_flag	
-	lda is_playing_flag 
+	lda is_playing_flag 	; 0 -> is playing, else it is either stopped or paused, and must not run into rmtplay again 
 	beq check_rasterbar_flag
-	jmp check_play_flag 	
+	bpl stop_loop 		; 1 -> is stopped, loop goes there instead 
+	jmp check_play_flag 	; repeat this until the flag is changed back to 0 
 check_rasterbar_flag
 	lda #0
 rasterbar_toggler equ *-1
@@ -421,6 +421,14 @@ do_rmtplay
 	sty COLBK		; background colour
 	sty COLPF2		; playfield colour 2 
 	beq loop                ; unconditional
+
+;-----------------
+
+stop_loop
+	lda is_playing_flag 	; 0 -> is playing, else it is either stopped 
+	bne stop_loop 		; loop infinitely, until the play flag is set to 0 again 
+	jsr module_init 	; reset the player to its initial state 
+	jmp loop		; continue like normal from here 
 
 ;-----------------
 
@@ -463,21 +471,34 @@ check_keys
 ;	cpy #$1E		; 2 key?
 ;	beq inc_rasterbar_colour
 	
+check_key_space
+	cpy #$21		; Spacebar?
+;	beq toggle_rasterbar	; yes => toggle the rasterbar display 
+	bne check_key_p
+	jmp toggle_rasterbar 
+	
 check_key_p
 	cpy #$0A
 	beq play_pause_toggle 	
 	
+check_key_s
+	cpy #$3E
+	beq stop_toggle 
+
+check_key_enter	
+	cpy #$0C
+	bne check_key_left 
+	jmp process_button_selection
+	
 check_key_left
 	cpy #$06
-	beq dec_songline_seek
+;	beq dec_songline_seek
+	beq dec_index_selection
 
 check_key_right
 	cpy #$07
-	beq inc_songline_seek
-	
-check_key_space
-	cpy #$21		; Spacebar?
-	beq toggle_rasterbar	; yes => toggle the rasterbar display 
+;	beq inc_songline_seek 
+	beq inc_index_selection 
 	
 check_key_esc 
 	cpy #$1C		; ESCape key? 
@@ -504,65 +525,105 @@ check_key_esc
 
 play_pause_toggle 
 	lda #0
-is_playing_flag equ *-1
-	bpl set_pause		; if positive, it is playing, else, it is already paused
+is_playing_flag equ *-1 
+	beq set_pause		; 0 -> currently playing, else, it was either paused or stopped 
 set_play 
-	ldx #$7C		; PLAY button character
-	ldy #8 			; 8 characters buffer
-	mva:rne txt_PLAY-1,y line_0e1-1,y- 
-	inc is_playing_flag	; FF -> 00 
-	beq play_pause_button_toggle
-set_pause
-	jsr rmt_silence		; pause the player 
-	ldx #$7D		; PAUSE button character 
-	ldy #8 			; 8 characters buffer
-	mva:rne txt_PAUSE-1,y line_0e1-1,y- 
-	lda #0
-	ldy #TRACKS-1
-set_pause_a
-	sta trackn_audc,y
-	dey 
-	bpl set_pause_a
+	ldx #0			; will set the play flag to 0, and also the offset for the PLAY characters 
+	stx is_playing_flag
+	beq play_pause_button_toggle_a
+set_pause 
 	dec is_playing_flag	; 00 -> FF
-play_pause_button_toggle
-	txa
-	ldy #247		; position on screen 
-	sta (DISPLAY),y 	; change the play button to a play button 
+	jsr stop_pause_reset	; pause the player and clear the AUDC registers 
+play_pause_button_toggle 
+	ldx #8			; offset by 8 for PAUSE characters	
+play_pause_button_toggle_a 
+	ldy #7			; 7 character buffer is enough 
+	mwa #line_0e1 DISPLAY	; move the position to the correct line
+	mwa #txt_PLAY infosrc	; set the pointer for the text data to this location
+	jsr printinfo 		; write the new text in this location 
+	ldx line_0e1		; the play/pause/stop character
+	cpx #$7B		; is it the STOP character?
+	bne play_pause_button_toggle_b ; if not, overwrite the character in the buttons display with either PLAY or PAUSE
+	inx			; else, make sure PLAY is loaded, then write it in memory 
+play_pause_button_toggle_b	
+	stx b_play 
 	ldx #$FF
 	bmi continue_a		; skip ahead and set the held key flag! 	
 
 ;-----------------
 
-songline_seek
+; RMT Stop, similar to pause, but then Play will start from the beginning, just like if it was initialised again 
 
-dec_songline_seek
-	ldy MODUL+15		; songline pointer MSB
-	ldx MODUL+14		; songline pointer LSB 
+stop_toggle
+	jsr stop_pause_reset	; pause the player and clear the AUDC registers 
+	ldy #1
+	sty is_playing_flag	; 1 -> player stopped
+	dey			; Y = 0, reset the timer, and order/row counter
+	sty v_second
+	sty v_minute
+	sty v_ord
+	sty v_abeat 
+	lda framecount		; must reset the frame counter as well 
+	sta v_frame
+	ldx #16			; offset by 16 for STOP characters
+	bne play_pause_button_toggle_a ; finish in the play_pause code from here, unconditional 
 
-	lda p_song
-	sub #TRACKS+TRACKS	; once -> same line plays again, so subtract twice this number!
-	sta p_song 
-	scs:dec p_song+1	; in case the boundary is crossed, the pointer MSB will increment as well
-	
-dec_songline_seek_a
-	cpy p_song+1		; compare the p_song MSB to the one from the module
-	bcs dec_songline_seek_b	; if the module value is lower, everything is mostly fine... do an extra check before!
-	sty p_song+1		; else, revert the changes to it 
+;-----------------
 
-dec_songline_seek_b
-	cpx p_song		; compare the p_song LSB to the one from the module
-	bcc dec_songline_seek_c	; if the module value is lower, everything is fine
-	stx p_song 		; overwrite the earlier changes to it	
+;songline_seek
+;
+;dec_songline_seek
+;	ldy MODUL+15		; songline pointer MSB
+;	ldx MODUL+14		; songline pointer LSB 
+;
+;	lda p_song
+;	sub #TRACKS+TRACKS	; once -> same line plays again, so subtract twice this number!
+;	sta p_song 
+;	scs:dec p_song+1	; in case the boundary is crossed, the pointer MSB will increment as well
+;	
+;dec_songline_seek_a
+;	cpy p_song+1		; compare the p_song MSB to the one from the module
+;	bcs dec_songline_seek_b	; if the module value is lower, everything is mostly fine... do an extra check before!
+;	sty p_song+1		; else, revert the changes to it 
+;
+;dec_songline_seek_b
+;	cpx p_song		; compare the p_song LSB to the one from the module
+;	bcc dec_songline_seek_c	; if the module value is lower, everything is fine
+;	stx p_song 		; overwrite the earlier changes to it	
+;	
+;dec_songline_seek_c
+;	
+;	; uhhh..... extra check necessary here! Things appear to work ok but this is not perfect, it could jump to garbage!
+;	
+;inc_songline_seek
+;	jsr GetSongLine		; hopefully this will work...
+;	ldx #$FF
+;	bmi continue_a		; skip ahead and set the held key flag! 
+
+;-----------------
+
+index_selection
+
+dec_index_selection
+	dec button_selection_flag 
+	bpl done_index_selection_a
+	lda #0
+	beq done_index_selection
 	
-dec_songline_seek_c
+inc_index_selection
+	inc button_selection_flag
+	ldx #6
+	cpx button_selection_flag 
+	bcs done_index_selection_a 
+;	dex 
+	txa 
 	
-	; uhhh..... extra check necessary here! Things appear to work ok but this is not perfect, it could jump to garbage!
-	
-inc_songline_seek
-	jsr GetSongLine		; hopefully this will work...
+done_index_selection
+	sta button_selection_flag
+done_index_selection_a
 	ldx #$FF
-	bmi continue_a		; skip ahead and set the held key flag! 
-
+	bmi continue_a		; skip ahead and set the held key flag! 	
+	
 ;-----------------
 	
 toggle_rasterbar 
@@ -585,7 +646,7 @@ continue_b 			; a key was detected as held when jumped directly here
 
 calculate_time 
 	lda is_playing_flag 
-	bmi notimetolose	; paused -> no time counter increment 
+	bne notimetolose	; not playing -> no time counter increment  
 	dec v_frame		; decrement the frame counter
 	bne notimetolose	; not 0 -> a second did not yet pass
 	lda #0
@@ -631,7 +692,10 @@ notimetolose
 	ldx v_second
 	txa
 	and #1
+	beq no_blink 
+	lda #0
 	beq blink
+no_blink 
 	lda #":"-$20
 blink
 	sta (DISPLAY),y 
@@ -857,6 +921,26 @@ decay_done
 	
 ;-----------------
 
+set_button_highlight
+	ldx #12
+set_button_highlight_a
+	lda b_handler,x
+	bpl set_button_highlight_b
+	eor #$80 
+	sta b_handler,x
+set_button_highlight_b
+	dex
+	dex
+	bpl set_button_highlight_a
+set_button_highlight_c 
+	jsr get_button_selection 
+	lda (DISPLAY),y 	; load the character in memory 
+;	bmi return_from_vbi	; highlight already set, nothing to do here
+	eor #$80 		; invert the character, this will define it as "highlighted"
+	sta (DISPLAY),y 	; write the character in memory, it is now selected, and will be processed again later 
+	
+;-----------------
+
 return_from_vbi
 	pla			; since we're in our own vbi routine, pulling all values manually is required
 	tay
@@ -875,6 +959,24 @@ wait_vblank
 wait        
 	cmp RTCLOK+2		; compare to itself
 	beq wait		; equal means it vblank hasn't began
+	rts
+
+;-----------------
+
+; print text from data tables, useful for many things 
+
+printinfo 
+	sty charbuffer
+	ldy #0
+do_printinfo
+        lda $ffff,x
+infosrc equ *-2
+	sta (DISPLAY),y
+	inx
+	iny 
+	cpy #0
+charbuffer equ *-1
+	bne do_printinfo 
 	rts
 
 ;-----------------
@@ -901,6 +1003,8 @@ hexchars
         
 ;-----------------
 
+; stop RMT and quit
+
 stopmusic 
 	jsr rmt_silence		; stop RMT and reset the POKEY registers
 	mwa oldvbi VVBLKI	; restore the old vbi address
@@ -912,6 +1016,99 @@ stopmusic
 	jmp (DOSVEC)		; return to DOS, or Self Test by default
 
 ;----------------- 
+
+; initialise the player, also reset the player if called from full stop
+
+module_init	
+	ldx #<MODUL		; low byte of RMT module to X reg
+	ldy #>MODUL		; hi byte of RMT module to Y reg
+	lda #STARTLINE		; starting song line 0-255 to A reg
+	jsr rmt_init		; Init returns instrument speed (1..4 => from 1/screen to 4/screen)
+	rts
+
+;-----------------
+
+; pause RMT and reset the registers
+
+stop_pause_reset
+	jsr rmt_silence		; pause the player 
+	lda #0			; default values
+	ldy #TRACKS-1		; number of channels to reset 
+stop_pause_reset_a 
+	sta trackn_audc,y	; clear the AUDC values in memory
+	dey 
+	bpl stop_pause_reset_a	; repeat until all channels were cleared 
+	rts
+
+;-----------------
+
+; get the button index	
+
+get_button_selection
+	mwa #b_handler DISPLAY	; move the position to the correct line 
+	ldx #2			; by default, the PLAY/PAUSE button 
+button_selection_flag equ *-1
+	txa 			; transfer to the accumulator, X will keep a backup of the index for the next part 
+	asl @			; multiply by 2 for the index
+	tay 			; use with Y to load/write at the proper location
+	rts
+	
+;-----------------
+
+; menu input handler
+
+process_button_selection 	
+	jsr get_button_selection 
+	lda (DISPLAY),y 	; load the character in memory 
+;	bmi valid_selection	; character was highligthed, go ahead for the next part  
+;	eor #$80 		; invert the character, this will define it as "highlighted"
+;	sta (DISPLAY),y 	; write the character in memory, it is now selected, and will be processed again later
+invalid_selection
+;	ldx #$FF
+;	jmp continue_a 		; done, if the selection was invalid, or the character was not highlighted, something went wrong, and must be ignored  
+valid_selection
+;	cpx #7			; a maximum of 7 indexes are valid, any value above this are invalid, and will be skipped!
+;	bcs invalid_selection	; if the value is equal or above 7, this is invalid, and will be ignored 
+;	bcc valid_selection_6 
+;	lda #0			; failsafe 
+;	sta button_selection_flag
+;	beq invalid_selection 	; unconditional 
+	
+valid_selection_6
+	cpx #6			; eject
+	bne valid_selection_5
+	jmp stopmusic
+	
+valid_selection_5	
+	cpx #5			; stop
+	bne valid_selection_4
+	jmp stop_toggle
+	
+valid_selection_4	
+;	cpx #4			; seek forward
+;	bne valid_selection_3
+;	jmp continue 
+	
+valid_selection_3	
+;	cpx #3			; fast forward
+;	bne valid_selection_2
+;	jmp continue 
+	
+valid_selection_2	
+	cpx #2			; play/pause
+	bne valid_selection_1
+	jmp play_pause_toggle 
+	
+valid_selection_1	
+;	cpx #1			; fast reverse
+;	bne valid_selection_0
+;	jmp continue 
+	
+valid_selection_0	
+;	cpx #0			; seek reverse
+	jmp continue 
+	
+;-----------------
 
 ; some plaintext data used in few spots
         
@@ -1015,10 +1212,19 @@ line_0d dta $44,$42,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,
 line_0e	dta $44
 	dta d" Tune: 00/00   "
 line_0e1	
-	dta $7C,$00 				; PLAY button
-	dta d"PLAY   "
-;	dta d"SBRWPPFFSFSPEJ++ "		; buttons test
-	dta $58,$00,$7F,$00,$7C,$00,$7E,$00,$57,$00,$7B,$00,$56,$00 
+	dta $7B,$00 			; STOP button, will be overwritten 
+	dta d"STOP   "			; STOP text, will be overwritten 
+
+; buttons for music player display
+
+b_handler				; index for the buttons handler
+b_seekr	dta $58,$00			; 0, Seek Reverse
+b_fastr	dta $7F,$00 			; 1, Fast Reverse
+b_play	dta $7C,$00 			; 2, PLAY or PAUSE, it will be overwritten when needed! 
+b_fastf	dta $7E,$00 			; 3, Fast Forward
+b_seekf	dta $57,$00 			; 4, Seek Forward
+b_stop	dta $7B,$00 			; 5, Stop
+b_eject	dta $56,$00 			; 6, Eject, will act as a fancy "Exit" button for now... 
 	dta $44
 
 ; bottomest border
