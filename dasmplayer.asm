@@ -33,7 +33,7 @@ REGIONPLAYBACK	equ 1		; 0 => PAL
 STEREODEFINED	equ 0
 
 	IFT !STEREODEFINED
-STEREOMODE	equ 0
+STEREOMODE	equ 1
 	EIF
 				;* 0 => compile RMTplayer for 4 tracks mono
 				;* 1 => compile RMTplayer for 8 tracks stereo
@@ -54,7 +54,7 @@ STEREOMODE	equ 0
 ; NTSC2PAL ->	VLINE must be:	7 for 1x, 7 for 2x,
 ; PAL2NTSC ->	VLINE must be:	??
 
-VLINE		equ 7		; nice round numbers fit well with multiples of 8 for every xVBI...
+VLINE		equ 10		; nice round numbers fit well with multiples of 8 for every xVBI...
 
 	ERT VLINE>155		; VLINE cannot be higher than 155!
 
@@ -170,7 +170,7 @@ subtune
 
 ; assemble Simple RMT Player here... 
 	
-	org $3B00		; at some point this will no longer fit...
+	org $3A00		; at some point this will no longer fit...
 start       
 	ldx #0			; disable playfield and the black colour value
 	stx SDMCTL		; write to Shadow Direct Memory Access Control address
@@ -409,7 +409,7 @@ check_play_flag
 	bpl stop_loop 		; 1 -> is stopped, loop goes there instead 
 	jmp check_play_flag 	; repeat this until the flag is changed back to 0 
 check_rasterbar_flag
-	lda #0
+	lda #0			; lda #$80 to display the rasterbar by default, 0 sets it hidden otherwise 
 rasterbar_toggler equ *-1
 	bpl do_rmtplay		; a positive value means the rasterbar is not displayed 
 	sty COLBK		; background colour
@@ -609,15 +609,12 @@ dec_index_selection
 	bpl done_index_selection_a
 	lda #0
 	beq done_index_selection
-	
 inc_index_selection
 	inc button_selection_flag
 	ldx #6
 	cpx button_selection_flag 
 	bcs done_index_selection_a 
-;	dex 
 	txa 
-	
 done_index_selection
 	sta button_selection_flag
 done_index_selection_a
@@ -926,23 +923,26 @@ decay_done
 	
 ;-----------------
 
-set_button_highlight
-	ldx #12
-set_button_highlight_a
-	lda b_handler,x
-	bpl set_button_highlight_b
-	eor #$80 
-	sta b_handler,x
-set_button_highlight_b
-	dex
-	dex
-	bpl set_button_highlight_a
-set_button_highlight_c 
-	jsr get_button_selection 
-	lda (DISPLAY),y 	; load the character in memory 
-;	bmi return_from_vbi	; highlight already set, nothing to do here
-	eor #$80 		; invert the character, this will define it as "highlighted"
-	sta (DISPLAY),y 	; write the character in memory, it is now selected, and will be processed again later 
+set_highlight 
+	ldx #6			; 7 buttons to index
+set_highlight_a
+	txa 			; transfer to accumulator
+	asl @			; multiply by 2
+	tay 			; transfer to Y, use to index the values directly
+	lda b_handler,y		; load the chacacter from this location
+	bpl set_highlight_b	; positive -> no highlight, skip overwriting it
+	eor #$80 		; invert the character
+	sta b_handler,y		; overwrite, no highlight to see again 
+set_highlight_b
+	dex 			; decrease the index and load the next character using it
+	bpl set_highlight_a	; as long as X is positive, do this again until all characters were reset 
+set_highlight_c 
+	lda button_selection_flag	; load the button flag value previously set in memory
+	asl @			; multiply it by 2 for the index 
+	tay			; transfer to Y, use it to index the character directly
+	lda b_handler,y 	; load the character in memory 
+	eor #$80 		; invert the character, this will now define it as "highlighted"
+	sta b_handler,y 	; write the character in memory, it is now selected, and will be processed again later 
 	
 ;-----------------
 
@@ -1045,73 +1045,30 @@ stop_pause_reset_a
 	bpl stop_pause_reset_a	; repeat until all channels were cleared 
 	rts
 
-;-----------------
-
-; get the button index	
-
-get_button_selection
-	mwa #b_handler DISPLAY	; move the position to the correct line 
-	ldx #2			; by default, the PLAY/PAUSE button 
-button_selection_flag equ *-1
-	txa 			; transfer to the accumulator, X will keep a backup of the index for the next part 
-	asl @			; multiply by 2 for the index
-	tay 			; use with Y to load/write at the proper location
-	rts
-	
-;-----------------
+;----------------- 
 
 ; menu input handler
 
-process_button_selection 	
-	jsr get_button_selection 
-	lda (DISPLAY),y 	; load the character in memory 
-;	bmi valid_selection	; character was highligthed, go ahead for the next part  
-;	eor #$80 		; invert the character, this will define it as "highlighted"
-;	sta (DISPLAY),y 	; write the character in memory, it is now selected, and will be processed again later
-invalid_selection
-;	ldx #$FF
-;	jmp continue_a 		; done, if the selection was invalid, or the character was not highlighted, something went wrong, and must be ignored  
-valid_selection
-;	cpx #7			; a maximum of 7 indexes are valid, any value above this are invalid, and will be skipped!
-;	bcs invalid_selection	; if the value is equal or above 7, this is invalid, and will be ignored 
-;	bcc valid_selection_6 
-;	lda #0			; failsafe 
-;	sta button_selection_flag
-;	beq invalid_selection 	; unconditional 
-	
-valid_selection_6
-	cpx #6			; eject
-	bne valid_selection_5
-	jmp stopmusic
-	
-valid_selection_5	
-	cpx #5			; stop
-	bne valid_selection_4
-	jmp stop_toggle
-	
-valid_selection_4	
-;	cpx #4			; seek forward
-;	bne valid_selection_3
-;	jmp continue 
-	
-valid_selection_3	
-;	cpx #3			; fast forward
-;	bne valid_selection_2
-;	jmp continue 
-	
-valid_selection_2	
-	cpx #2			; play/pause
-	bne valid_selection_1
-	jmp play_pause_toggle 
-	
-valid_selection_1	
-;	cpx #1			; fast reverse
-;	bne valid_selection_0
-;	jmp continue 
-	
-valid_selection_0	
-;	cpx #0			; seek reverse
-	jmp continue 
+process_button_selection  
+	lda #2			; by default, the PLAY/PAUSE button 
+button_selection_flag equ *-1
+	asl @
+	asl @ 
+	sta b_index+1
+b_index	bcc *
+	jmp continue 		; #0 => seek reverse (no code yet) 
+	nop
+	jmp continue		; #1 => fast reverse (no code yet) 
+	nop
+	jmp play_pause_toggle	; #2 => play/pause
+	nop
+	jmp continue 		; #3 => fast forward (no code yet) 
+	nop
+	jmp continue 		; #4 => seek forward (no code yet) 
+	nop
+	jmp stop_toggle 	; #5 => stop
+	nop
+	jmp stopmusic 		; #6 => eject 
 	
 ;-----------------
 
