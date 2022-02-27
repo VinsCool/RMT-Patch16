@@ -29,7 +29,9 @@ TRACKS			equ 8
 TRACKS			equ 4
 	EIF
 	
-PLAYER			equ $3400
+;PLAYER			equ $3400
+
+PLAYER			equ $3200
 TABLES			equ $B000
 INSTRPAR		equ 12
 
@@ -179,7 +181,7 @@ TABLES_MSB
 DISTORTIONS equ *+1
 	dta >PAGE_DISTORTION_A,$00
 	dta >PAGE_DISTORTION_2,$20
-	dta >PAGE_DISTORTION_A,$40
+	dta >PAGE_DISTORTION_A,$40 	
 	dta >PAGE_DISTORTION_A,$A0
 	dta >PAGE_DISTORTION_A,$80
 	dta >PAGE_DISTORTION_A,$A0
@@ -394,9 +396,9 @@ nn0
 nn0_a
 	IFT FEAT_IS_SIMPLEP
 	IFT EXPORTXEX			; Simple RMT Player hack for colour cycling, change the rasterbar colour every new pattern played
-;	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
-;	add #16				; offset the value by #$10 for a simple colour shuffle
-;	sta loop+1   			; store back where it was loaded, overwriting the previous value
+	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
+	add #16				; offset the value by #$10 for a simple colour shuffle
+	sta loop+1   			; store back where it was loaded, overwriting the previous value
 	lda p_song			; calculate the songline? why such an elaborate setup tho?
 	sub MODUL+14 
 	sta v_ord 
@@ -764,7 +766,7 @@ dodex
 dodex_a
 	sta trackn_instridx,x
 
-	IFT FEAT_AUDCTLMANUALSET&&FEAT_COMMAND7
+	IFT FEAT_AUDCTLMANUALSET&&FEAT_COMMAND7		; POSSIBLE IMPROVEMENT: process the Two-Tone Filter commands here instead, leaving CMD7 only useful for Volume Only checks later
 dex_cmd7	
 	lda trackn_command,x
 	and #$70			; clear distortion and other bits
@@ -880,24 +882,46 @@ getdist
 	
 ;* start of the tuning tables code... 
 
+; POSSIBLE IMPROVEMENT: make a JMP table indexed by X, instead of these dumb 1 by 1 checks... 
+; This may potentially debloat a lot of this part, and make things much faster as well 
+; AUDCTL BIT bytes could also be snuck in between the JMPs, replacing the NOPs, saving some space too! 
+
 do_tuning_tables
 	lda reg2		; Distortion and Command
 	and #$0E		; Only keep the Distortion bits
 	tay			; will be used for the tables MSB pointer, and the Distortion itself	
 	
 	IFT FEAT_AUDCTLMANUALSET
-	lda reg1		; AUDCTL backup 
-	bne check_index 	; if not zero, process the channels index
-	IFT FEAT_BASS16
-	cpy #$06 		; Distortion 6?
-	beq check_index		; channels MUST be checked, even with AUDCTL == 0, in order to process the BASS16 code properly!
+
+check_index
+	txa
+	
+	IFT TRACKS>4		; stereo mode 	
+	cpx #4			; are we in the right POKEY channels?
+	bcc check_index_mono	; if x is below 4, we are not 
+	sbc #4			; carry is set, 4 will be subtracted 
+check_index_stereo		
 	EIF
-	jmp store_tables_lsb	; if 0, no flag to check, skip checking channels immediately!
+
+check_index_mono
+	asl @			; stereo index is 4 to 7, skip 1 ASL @ to allow using the same index JMPs 
+	asl @ 
+	sta c_index+1
+	lda reg1 
+c_index	bcc *
+	jmp check_ch1 
+	nop
+	jmp check_ch2
+	nop
+	jmp check_ch3
+	nop
+	jmp check_ch4 
 	
 	IFT FEAT_BASS16
 hellyes
 	jmp do_bass16		; process the BASS16 code from here
 	EIF	
+	
 	IFT FEAT_FULL_16BIT
 hellno				; Invalid 16-bit flag!
 	lda #0			; clear the channel values
@@ -905,28 +929,7 @@ hellno				; Invalid 16-bit flag!
 	sta trackn_audf,x
 	jmp ppnext 		; skip this channel entirely 
 	EIF	
-	
-check_index
-	IFT TRACKS>4		; stereo mode
-check_index_stereo	
-	cpx #4			; are we in the right POKEY channels?
-	bcc check_index_mono	; if x is lower than 4, we are not
-	cpx #7			; ch4
-	beq check_ch4
-	cpx #6 			; ch3
-	beq check_ch3
-	cpx #5			; ch2
-	beq check_ch2	
-	bne check_ch1		; ch1 is unconditional, the other 3 channels were already tested!
-	EIF
-check_index_mono
-	cpx #3			; ch4
-	beq check_ch4
-	cpx #2			; ch3
-	beq check_ch3
-	cpx #1			; ch2
-	beq check_ch2		
-				; ch1 is unconditional, the other 3 channels were already tested!
+
 check_ch1 
 	IFT FEAT_FULL_SAWTOOTH
 	bit CH1_179		
