@@ -454,71 +454,52 @@ check_key_pressed
 	beq check_key_pressed_b	; yes if equal
 check_key_pressed_a
 	jmp continue		; if not, nothing else to do here 
-check_key_pressed_b
-	ldx #0
+check_key_pressed_b 
+	lda #0 
 held_key_flag equ *-1
 	bpl check_keys
 	jmp continue_b		; a key is being held... skip ahead immediately 
-	
+
 check_keys
 	; check all keys that have a purpose here... 
-		
-;check_key_1
-;	cpy #$1F		; 1 key?
-;	beq dec_rasterbar_colour
-	
-;check_key_2
-;	cpy #$1E		; 2 key?
-;	beq inc_rasterbar_colour
-	
-check_key_space
-	cpy #$21		; Spacebar?
-;	beq toggle_rasterbar	; yes => toggle the rasterbar display 
-	bne check_key_p
-	jmp toggle_rasterbar 
-	
-check_key_p
-;	cpy #$0A
-;	beq play_pause_toggle 	
-	
-check_key_s
-;	cpy #$3E
-;	beq stop_toggle 
-
-check_key_enter	
-	cpy #$0C
-	bne check_key_left 
-	jmp process_button_selection
-	
+	ldx button_selection_flag
 check_key_left
-	cpy #$06
-;	beq dec_songline_seek
-	beq dec_index_selection
-
+	cpy #$06		; Left/Plus key?
+	beq dec_index_selection ; yes => decrement the index by 1
 check_key_right
-	cpy #$07
-;	beq inc_songline_seek 
-	beq inc_index_selection 
-	
+	cpy #$07 		; Right/Asterisk key? 
+	beq inc_index_selection ; yes => increment the index by 1 
+check_key_enter	
+	cpy #$0C		; Enter?
+	bne check_key_space	
+	jmp do_button_selection	; yes => process the menu input code 	
+check_key_space
+	cpy #$21		; Spacebar? 
+	bne check_key_esc 	; JMP continue on that line if not equal 
+	jmp toggle_rasterbar 	; yes => toggle the rasterbar display 
 check_key_esc 
 	cpy #$1C		; ESCape key? 
 	bne check_key_pressed_a	; nope => loop 
 	jmp stopmusic		; else, it's over 
 
-;----------------- 
+;-----------------
 
-; rasterbar_colour
+; index_selection 
 
-;dec_rasterbar_colour
-;	dec rasterbar_colour
-;	dex 			; 0 -> FF 
-;	bmi continue_a		; skip ahead and set the held key flag! 
-
-;inc_rasterbar_colour
-;	inc rasterbar_colour
-;	dex    			; 0 -> FF 
-;	bmi continue_a		; skip ahead and set the held key flag! 
-
+dec_index_selection
+	dex 				; decrement the index
+	bpl done_index_selection	; if the value did not underflow, done 
+	ldx #0				; if it went past the boundaries, load 0 as a failsafe
+	beq done_index_selection	; unconditional
+inc_index_selection
+	inx				; increment the index
+	cpx #7				; compare to the maximum of 7 button indexes
+	bcc done_index_selection	; if below 7, everything is good
+	ldx #6 				; else, load 6 as a failsafe 
+done_index_selection
+	stx button_selection_flag 	; overwrite the index value
+	jmp set_held_key_flag 		; done 
+	
 ;-----------------
 
 ; RMT Play/Pause
@@ -546,82 +527,53 @@ play_pause_button_toggle_a
 	bne play_pause_button_toggle_b ; if not, overwrite the character in the buttons display with either PLAY or PAUSE
 	inx			; else, make sure PLAY is loaded, then write it in memory 
 play_pause_button_toggle_b	
-	stx b_play 
-	ldx #$FF
-	bmi continue_a		; skip ahead and set the held key flag! 	
+	stx b_play 		; overwrite the Play/Pause character
+	jmp set_held_key_flag 	; done 
 
 ;-----------------
 
 ; RMT Stop, similar to pause, but then Play will start from the beginning, just like if it was initialised again 
 
 stop_toggle
-	jsr stop_pause_reset	; pause the player and clear the AUDC registers 
+	jsr stop_pause_reset		; pause the player and clear the AUDC registers 
 	ldy #1
-	sty is_playing_flag	; 1 -> player stopped
-	dey			; Y = 0, reset the timer, and order/row counter
-	sty v_second
-	sty v_minute
-	sty v_ord
-	sty v_abeat 
-	lda framecount		; must reset the frame counter as well 
-	sta v_frame
-	ldx #16			; offset by 16 for STOP characters
+	sty is_playing_flag		; 1 -> player stopped
+	dey				; Y = 0, reset the timer, and order/row counter
+	sty v_second			; reset the seconds counter
+	sty v_minute			; reset the minutes counter
+	sty v_ord			; reset the order counter
+	sty v_abeat 			; reset the rows counter
+	lda framecount			; number of frames defined at initialisation  
+	sta v_frame			; reset the frames counter 
+	ldx #16				; offset by 16 for STOP characters
 	bne play_pause_button_toggle_a ; finish in the play_pause code from here, unconditional 
 
 ;-----------------
 
-;songline_seek
-;
-;dec_songline_seek
-;	ldy MODUL+15		; songline pointer MSB
-;	ldx MODUL+14		; songline pointer LSB 
-;
-;	lda p_song
-;	sub #TRACKS+TRACKS	; once -> same line plays again, so subtract twice this number!
-;	sta p_song 
-;	scs:dec p_song+1	; in case the boundary is crossed, the pointer MSB will increment as well
-;	
-;dec_songline_seek_a
-;	cpy p_song+1		; compare the p_song MSB to the one from the module
-;	bcs dec_songline_seek_b	; if the module value is lower, everything is mostly fine... do an extra check before!
-;	sty p_song+1		; else, revert the changes to it 
-;
-;dec_songline_seek_b
-;	cpx p_song		; compare the p_song LSB to the one from the module
-;	bcc dec_songline_seek_c	; if the module value is lower, everything is fine
-;	stx p_song 		; overwrite the earlier changes to it	
-;	
-;dec_songline_seek_c
-;	
-;	; uhhh..... extra check necessary here! Things appear to work ok but this is not perfect, it could jump to garbage!
-;	
-;inc_songline_seek
-;	jsr GetSongLine		; hopefully this will work...
-;	ldx #$FF
-;	bmi continue_a		; skip ahead and set the held key flag! 
+; songline_seek
 
-;-----------------
+dec_songline_seek
+	ldy MODUL+15		; songline pointer MSB
+	ldx MODUL+14		; songline pointer LSB 
+	lda p_song
+	sub #TRACKS+TRACKS	; once -> same line plays again, so subtract twice this number!
+	sta p_song 
+	scs:dec p_song+1	; in case the boundary is crossed, the pointer MSB will increment as well
+dec_songline_seek_a
+	cpy p_song+1		; compare the p_song MSB to the one from the module
+	bcs dec_songline_seek_b	; if the module value is lower, everything is mostly fine... do an extra check before!
+	sty p_song+1		; else, revert the changes to it 
+dec_songline_seek_b
+	cpx p_song		; compare the p_song LSB to the one from the module
+	bcc dec_songline_seek_c	; if the module value is lower, everything is fine
+	stx p_song 		; overwrite the earlier changes to it	
+dec_songline_seek_c
+	; uhhh..... extra check necessary here! Things appear to work ok but this is not perfect, it could jump to garbage! 
+inc_songline_seek
+	jsr GetSongLine		; hopefully this will work... 
+	jmp set_held_key_flag 	; done 
 
-index_selection
-
-dec_index_selection
-	dec button_selection_flag 
-	bpl done_index_selection_a
-	lda #0
-	beq done_index_selection
-inc_index_selection
-	inc button_selection_flag
-	ldx #6
-	cpx button_selection_flag 
-	bcs done_index_selection_a 
-	txa 
-done_index_selection
-	sta button_selection_flag
-done_index_selection_a
-	ldx #$FF
-	bmi continue_a		; skip ahead and set the held key flag! 	
-	
-;-----------------
+;----------------- 
 	
 toggle_rasterbar 
 	lda rasterbar_toggler	; rasterbar flag, a negative value means the rasterbar display is active 
@@ -630,8 +582,8 @@ toggle_rasterbar
 	
 ;-----------------
 
-set_held_key_flag
-	dex			; 0 -> FF 
+set_held_key_flag 
+	ldx #$FF
 	bmi continue_a		; skip ahead and set the held key flag! 
 continue			; do everything else during VBI after the keyboard checks 
 	ldx #0			; reset the held key flag! 
@@ -924,25 +876,25 @@ decay_done
 ;-----------------
 
 set_highlight 
-	ldx #6			; 7 buttons to index
+	ldx #6				; 7 buttons to index
 set_highlight_a
-	txa 			; transfer to accumulator
-	asl @			; multiply by 2
-	tay 			; transfer to Y, use to index the values directly
-	lda b_handler,y		; load the chacacter from this location
-	bpl set_highlight_b	; positive -> no highlight, skip overwriting it
-	eor #$80 		; invert the character
-	sta b_handler,y		; overwrite, no highlight to see again 
+	txa 				; transfer to accumulator
+	asl @				; multiply by 2
+	tay 				; transfer to Y, use to index the values directly
+	lda b_handler,y			; load the chacacter from this location
+	bpl set_highlight_b		; positive -> no highlight, skip overwriting it
+	eor #$80 			; invert the character
+	sta b_handler,y			; overwrite, no highlight to see again 
 set_highlight_b
-	dex 			; decrease the index and load the next character using it
-	bpl set_highlight_a	; as long as X is positive, do this again until all characters were reset 
+	dex 				; decrease the index and load the next character using it
+	bpl set_highlight_a		; as long as X is positive, do this again until all characters were reset 
 set_highlight_c 
 	lda button_selection_flag	; load the button flag value previously set in memory
-	asl @			; multiply it by 2 for the index 
-	tay			; transfer to Y, use it to index the character directly
-	lda b_handler,y 	; load the character in memory 
-	eor #$80 		; invert the character, this will now define it as "highlighted"
-	sta b_handler,y 	; write the character in memory, it is now selected, and will be processed again later 
+	asl @				; multiply it by 2 for the index 
+	tay				; transfer to Y, use it to index the character directly
+	lda b_handler,y 		; load the character in memory 
+	eor #$80 			; invert the character, this will now define it as "highlighted"
+	sta b_handler,y 		; write the character in memory, it is now selected, and will be processed again later 
 	
 ;-----------------
 
@@ -1049,7 +1001,7 @@ stop_pause_reset_a
 
 ; menu input handler
 
-process_button_selection  
+do_button_selection   
 	lda #2			; by default, the PLAY/PAUSE button 
 button_selection_flag equ *-1
 	asl @
@@ -1058,11 +1010,11 @@ button_selection_flag equ *-1
 b_index	bcc *
 	jmp continue 		; #0 => seek reverse (no code yet) 
 	nop
-	jmp continue		; #1 => fast reverse (no code yet) 
+	jmp dec_songline_seek	; #1 => fast reverse (no code yet) 
 	nop
-	jmp play_pause_toggle	; #2 => play/pause
+	jmp play_pause_toggle	; #2 => play/pause 
 	nop
-	jmp continue 		; #3 => fast forward (no code yet) 
+	jmp inc_songline_seek 	; #3 => fast forward (no code yet) 
 	nop
 	jmp continue 		; #4 => seek forward (no code yet) 
 	nop
@@ -1150,8 +1102,7 @@ mode_2d dta $43,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,
 
 ; timer, order, row, etc display
 
-line_0a	dta $44
-;	dta d" Time: 00:00        Order: 00 Row: 00 "
+line_0a	dta $44 
 	dta d" Time: 00:00  Spd: 00 Ord: 00 Row: 00 "
 	dta $44
 
