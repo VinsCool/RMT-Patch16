@@ -1118,6 +1118,10 @@ check_15khz_c
 	
 	IFT FEAT_FULL_16BIT	;* TODO: Implement this idea in a better way, maybe in the Aggressive Init section, along with Sawtooth, and other special tricks? 
 get_16bit_flag
+	cpy #$06		; Distortion 6?
+	bne get_16bit_flag_a	; no, continue with the normal 16-bit mode
+	jmp do_bass16_c		; go directly in the BASS16 code handling the CMD6 hijack, skipping the AUDCTL update
+get_16bit_flag_a
 	lda #$80		; 16-bit pointer for the tables LSB 
 	bne store_tables_lsb	; unconditional, finish in the middle of the 64khz/1.79mhz branch
 	EIF
@@ -1967,24 +1971,25 @@ do_bass16_a
 	sta v_audctl		; overwrite the AUDCTL, to force 16-bit mode through Distortion 6
 	
 do_bass16_b
-
+	inc g_flag-1,x		; 16-bit LSB flag 
+	dec g_flag,x		; 16-bit MSB flag 
+	
+do_bass16_c
 	IFT FEAT_COMMAND6&&FEAT_FULL_16BIT
 	lda reg2		; Distortion and Commands
 	and #$70		; leave only the Commands bits
 	cmp #$60		; CMD6?
-	bne do_bass16_c		; skip if not CMD6
+	bne do_bass16_d		; skip if not CMD6
 	lda reg3		; XY parameter 
 	and #$0E		; strip away all unwanted bits, left nybble will not affect anything
 	sta bass16_pointer	; PERMANENTLY change the value until a new CMD6 value is read
 	EIF
 	
 	IFT FEAT_FULL_16BIT	
-do_bass16_c
+do_bass16_d
 	ldy #$0A		; Distortion A
 bass16_pointer equ *-1 
-	inc g_flag-1,x		; 16-bit LSB flag 
-	dec g_flag,x		; 16-bit MSB flag 
-	jmp get_16bit_flag	; process the remaining of the 16-bit code from there
+	jmp get_16bit_flag_a	; process the remaining of the 16-bit code from there
 	
 	ELS			;* FIXMEEEE
 	
