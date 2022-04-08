@@ -54,16 +54,6 @@ tmp			org *+1
 	IFT FEAT_COMMAND2
 frqaddcmd2		org *+1
 	EIF
-
-; these 2 pointer hijacking pieces could be implemented better...
-
-	IFT FEAT_FULL_16BIT||FEAT_BASS16
-pointer16bitlo		org *+2
-	EIF
-	
-	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
-sawtoothtables		org *+2
-	EIF 
 	
 ;* possible improvement: setting variables after the RMT driver itself? 
 ;* That would make adjustments easier to manage, if this works as I expect...
@@ -140,6 +130,14 @@ trackn_tablespeeda	org *+TRACKS
 
 	IFT FEAT_FILTER
 trackn_filter		org *+TRACKS		;* POTENTIAL OPTIMISATION: it is NOT necessary to use all tracks... only channel 1 and 2 will use it to offset the other...
+	EIF
+
+	IFT FEAT_FULL_16BIT||FEAT_BASS16	;* EXPERIMENTAL METHOD: full 16-bit values, Sawtooth and Filter may also benefit from this approach...
+trackn_bass16		org *+TRACKS
+	EIF
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16||FEAT_FULL_SAWTOOTH
+g_flag			org *+TRACKS
 	EIF
 	
 	IFT FEAT_TABLE_MANUAL
@@ -363,11 +361,11 @@ si1
 	EIF
 	
 	IFT FEAT_IS_TRACKER 		; reset the tables pointers 
-	lda #<frqtabsawtooth_ch1	
+	lda #<frqtabsawtooth_ch1	; reset the Sawtooth table inversion
 	sta saw_ch1
 	lda #<frqtabsawtooth_ch3
 	sta saw_ch3	
-	lda #$0A			
+	lda #$0A			; reset the Distortion 6 16-bit pointer
 	sta bass16_pointer 
 	lda #3				; reset the SKCTL state to normal
 	sta v_skctl
@@ -399,8 +397,8 @@ nn0_a
 	lda loop+1			; the #RASTERBAR colour defined will be loaded there specifically
 	add #16				; offset the value by #$10 for a simple colour shuffle
 	sta loop+1   			; store back where it was loaded, overwriting the previous value
-	lda p_song			; calculate the songline? why such an elaborate setup tho?
-	sub MODUL+14 
+	lda p_song			; calculate the songline position below, this is done once every new songline
+	sub MODUL+14 			; TODO: relocate this code elsewhere, so toggling it would be easier
 	sta v_ord 
 	lda p_song+1
 	sbc MODUL+15
@@ -737,8 +735,17 @@ p2o3
 
 rmt_p3	
 	ldx #TRACKS-1
-	
-;* combining the aggressive init and rmt_p3 in 1 thing, this is now an even more aggressive approach! 
+
+;*
+;* Aggressive initialisation every new player call here, the method was originally done to get the AUDCTL early, but many things can be exploited here the same way.
+;* Combining the aggressive init and rmt_p3 in 1 thing, this is now an even more aggressive approach! 
+;*
+;* POSSIBLE IMPROVEMENT: process ALL effect commands here instead... Meaning there won't be workarounds necessary later, for several commands.
+;* Example: Get AUDCTL early, get Effect values early, process instrument accordingly afterwards.
+;* Doing certain things in a different order might drastically speed up several parts that end up being redundant or even overwritten later during certain effects like AUTOFILTER or BASS16.
+;* Let's say, process 16-bit here... in such case, there won't be anything stopping the player to know it can safely skip a channel's instrument if it was going to be overwritten anyway...
+;* This is purely speculation, however, so what is done here currently does the job, at least. This is still very different from the original RMT driver code as it is.
+;* 
 	
 dodex	
 	lda trackn_instrhb,x
@@ -791,15 +798,74 @@ pp0					; get AUDCTL as early as possible, properly this time!
 	ora trackn_audctl+2
 	ora trackn_audctl+3
 	sta v_audctl	
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16||FEAT_FULL_SAWTOOTH
+pp0_a					;* POSSIBLE IMPROVEMENT: Assign flags early here as soon as possible
+	bit JOIN_12
+	beq pp0_b
+	bit CH1_179
+	beq pp0_b
+	inc g_flag+0			; 16-bit LSB flag set in ch1
+	dec g_flag+1			; 16-bit MSB flag set in ch2
+pp0_b
+	bit JOIN_34
+	beq pp0_c
+	bit CH3_179
+	beq pp0_c
+	inc g_flag+2			; 16-bit LSB flag set in ch3
+	dec g_flag+3			; 16-bit MSB flag set in ch4 
+pp0_c
+	EIF
+	
 	IFT TRACKS>4	
 	lda trackn_audctl+4
 	ora trackn_audctl+5
 	ora trackn_audctl+6
 	ora trackn_audctl+7
 	sta v_audctl2	
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16||FEAT_FULL_SAWTOOTH
+pp0_d					;* POSSIBLE IMPROVEMENT: Assign flags early here as soon as possible
+	bit JOIN_12
+	beq pp0_e
+	bit CH1_179
+	beq pp0_e
+	inc g_flag+4			; 16-bit LSB flag set in ch1
+	dec g_flag+5			; 16-bit MSB flag set in ch2
+pp0_e
+	bit JOIN_34
+	beq pp0_f
+	bit CH3_179
+	beq pp0_f
+	inc g_flag+6			; 16-bit LSB flag set in ch3
+	dec g_flag+7			; 16-bit MSB flag set in ch4 
+	EIF
+	
 	EIF	
-pp0_a
+	
+pp0_f
 	sta reg1			; backup the AUDCTL to the zeropage for quicker accesses later	
+	
+	;;;;;;;;;;;;
+	
+;	pp0_b					;* POSSIBLE IMPROVEMENT: Assign flags early here as soon as possible
+;		bit JOIN_12
+;		beq pp0_c
+;		bit CH1_179
+;		beq pp0_c
+;		inc g_flag-3,x			; 16-bit LSB flag set in ch1
+;		dec g_flag-2,x			; 16-bit MSB flag set in ch2
+;	pp0_c
+;		bit JOIN_34
+;		beq pp0_f
+;		bit CH3_179
+;		beq pp0_f
+;		inc g_flag-1,x			; 16-bit LSB flag set in ch3
+;		dec g_flag,x			; 16-bit MSB flag set in ch4 
+;	pp0_f	
+
+	;;;;;;;;;;;;;
+
 	ELS
 	lda #0
 	sta v_audctl
@@ -840,7 +906,7 @@ pp2s
 	ora trackn_volume,x
 	tay
 	lda volumetab,y
-	sta tmp
+	sta tmp				; backup the resulting volume here, it will then used to make the AUDC value a bit later
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 
@@ -882,16 +948,36 @@ getdist
 	
 ;* start of the tuning tables code... 
 
-; POSSIBLE IMPROVEMENT: make a JMP table indexed by X, instead of these dumb 1 by 1 checks... 
-; This may potentially debloat a lot of this part, and make things much faster as well 
-; AUDCTL BIT bytes could also be snuck in between the JMPs, replacing the NOPs, saving some space too! 
+;*
+;* POSSIBLE IMPROVEMENT: make a JMP table indexed by X, instead of these dumb 1 by 1 checks... now done?
+;* ANOTEHR POSSIBLE IMPROVEMENT: get the combined Distortion and Volume value as soon as possible, then get the tables pointer loaded...
+;*
+;* This may potentially debloat a lot of this part, and make things much faster as well 
+;* AUDCTL BIT bytes could also be snuck in between the JMPs, replacing the NOPs, saving some space too! 
+;* In fact, a lot of the things here need to get improved a lot more... 6502 ASM is hard!!!
+;*
 
 do_tuning_tables
 	lda reg2		; Distortion and Command
 	and #$0E		; Only keep the Distortion bits
 	tay			; will be used for the tables MSB pointer, and the Distortion itself	
-	
+		
 	IFT FEAT_AUDCTLMANUALSET
+
+	IFT FEAT_FULL_16BIT||FEAT_BASS16||FEAT_FULL_SAWTOOTH
+	
+	lda g_flag,x		; load the channel flag
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	beq check_index		; no flag was set, process the other checks
+	bmi get_16bit_flag	; 16-bit MSB flag detected, jump and finish there immediately
+	
+	lda #0			; positive value means the 16-bit LSB flag was set (unless specified otherwise)
+	sta trackn_audc,x	; mute the channel
+	jmp ppnext		; finish this channel early, there is nothing else to do!
+	EIF
+	
+	EIF
 
 check_index
 	txa
@@ -900,14 +986,13 @@ check_index
 	cpx #4			; are we in the right POKEY channels?
 	bcc check_index_mono	; if x is below 4, we are not 
 	sbc #4			; carry is set, 4 will be subtracted 
-check_index_stereo		
 	EIF
 
 check_index_mono
 	asl @			; stereo index is 4 to 7, skip 1 ASL @ to allow using the same index JMPs 
 	asl @ 
 	sta c_index+1
-	lda reg1 
+	lda reg1 		; audctl backup
 c_index	bcc *
 	jmp check_ch1 
 	nop
@@ -916,115 +1001,110 @@ c_index	bcc *
 	jmp check_ch3
 	nop
 	jmp check_ch4 
-	
-	IFT FEAT_BASS16
-hellyes
-	jmp do_bass16		; process the BASS16 code from here
-	EIF	
-	
-	IFT FEAT_FULL_16BIT
-hellno				; Invalid 16-bit flag!
-	lda #0			; clear the channel values
-	sta trackn_audc,x
-	sta trackn_audf,x
-	jmp ppnext 		; skip this channel entirely 
-	EIF	
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
 
 check_ch1 
-	IFT FEAT_FULL_SAWTOOTH
+
+	IFT FEAT_FULL_SAWTOOTH	;* POTENTIAL IMPROVEMENT: assign a flag to Sawtooth instead of manually checking everything each time-- But how exactly??
+				;* Also... flags could just be loaded here, and jump to the STA directly... hmmmm, I forgot why I even went this hard with the checks...
+	
 	bit CH1_179		
-	beq get_15khz_flag	; if 1.79mhz mode is not enabled in ch1, there will be no Sawtooth 
-	IFT FEAT_FULL_16BIT
-	bit JOIN_12
-	bne hellno		; 16-bit mode takes priority over Sawtooth!!!	
-	EIF	
-	bit CH3_179		
-	beq get_179_flag	; ch3 MUST have 1.79mhz mode enabled as well, if it is not, there will be no Sawtooth
-	IFT FEAT_FULL_16BIT
-	bit JOIN_34
-	bne get_179_flag	; 16-bit mode takes priority over Sawtooth!!!
-	EIF
-	cpy #$0A		; Distortion A?
-	bne get_179_flag	; no Sawtooth if not equal
+	beq get_15khz_flag	; if 1.79mhz mode is not enabled in ch1, there will be no Sawtooth. UPDATE: CH3's manual 1.79mhz mode is no longer a requirement, it will be hijacked instead
 	lda tmp			; volume value backup
-	beq get_179_flag	; no Sawtooth if the volume is 0
+	beq get_179_flag	; no Sawtooth if the volume is 0	
+	cpy #$0A		; Distortion A?
+	bne get_179_flag	; no Sawtooth if not equal	
+	lda reg2
+	bpl get_179_flag	; no Sawtooth if the AUTOFILTER command is off
 	jmp do_sawtooth		; if all checks passed, process the Sawtooth code
+	
 	ELS
+	
 	bit CH1_179
-	beq get_15khz_flag
-	IFT FEAT_FULL_16BIT
-	bit JOIN_12
-	beq get_179_flag
-	bne hellno	
-	ELS
+	beq get_15khz_flag 
 	bne get_179_flag
-	EIF 
+	
 	EIF
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
 	
 check_ch2	
-	IFT FEAT_FULL_16BIT||FEAT_BASS16
+
+	IFT FEAT_FULL_16BIT||FEAT_BASS16	; TODO: a more reliable way to detect BASS16...
+	
 	IFT FEAT_BASS16
-	cpy #$06		; Distortion 6?
-	bne check_ch2_b		; if not equal, no BASS16
-	lda tmp 		; volume value backup
-	beq check_ch2_a		; if the volume is 0, no BASS16
-	lda #$50		; JOIN_12 + CH1_179 bits 
-	bne hellyes		; unconditional	
+	cpy #$06				; Distortion 6?
+	bne check_ch2_b				; if not equal, no BASS16
+	lda tmp 				; volume value backup
+	beq check_ch2_a				; if the volume is 0, no BASS16
+	lda #$50				; JOIN_12 + CH1_179 bits 
+	jmp do_bass16
+	
 check_ch2_a
-	lda reg1		; reload the AUDCTL, then continue like normal
-	EIF
-check_ch2_b
-	IFT FEAT_FULL_16BIT
-	bit CH1_179
-	beq get_15khz_flag
-	bit JOIN_12
-	bne get_16bit_flag
-	beq get_15khz_flag	
-	ELS
-	jmp get_15khz_flag
-	EIF	
-	ELS
-	beq get_15khz_flag	; unconditional
+	lda reg1				; reload the AUDCTL, then continue like normal-- This should be done in a cleaner way later...
 	EIF
 	
-check_ch3 	
-	bit CH3_179
-	beq get_15khz_flag
-	IFT FEAT_FULL_16BIT
-	bit JOIN_34
-	beq get_179_flag
-	bne hellno	
+check_ch2_b
+;		IFT FEAT_FULL_16BIT
+;		bit JOIN_12
+;		beq get_15khz_flag 
+;		bit CH1_179
+;		bne get_16bit_flag
+;		beq get_15khz_flag
+;		EIF 
+;		
+
+	jmp get_15khz_flag			; TODO: implement a much better setup, JMPs everywhere are a waste!
+
 	ELS
-	bne get_179_flag
+	
+	jmp get_15khz_flag			; TODO: implement a much better setup, JMPs everywhere are a waste!
+	
 	EIF
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
+	
+check_ch3 
+
+	bit CH3_179		; Not much to say here actually... by far the simpliest setup...
+	beq get_15khz_flag
+	bne get_179_flag 
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
 	
 check_ch4	
-	IFT FEAT_FULL_16BIT||FEAT_BASS16
+
+	IFT FEAT_FULL_16BIT||FEAT_BASS16	;* TODO much like CH1, things are to be desired here as well...
+	
 	IFT FEAT_BASS16
 	cpy #$06		; Distortion 6?
 	bne check_ch4_b		; if not equal, no BASS16
 	lda tmp 		; volume value backup
 	beq check_ch4_a		; if the volume is 0, no BASS16
 	lda #$28		; JOIN_34 + CH3_179 bits 
-	bne hellyes		; unconditional	
+	jmp do_bass16
+	
 check_ch4_a
 	lda reg1		; reload the AUDCTL, then continue like normal
 	EIF
+	
 check_ch4_b
-	IFT FEAT_FULL_16BIT
-	bit CH3_179
-	beq get_15khz_flag
-	bit JOIN_34
-	bne get_16bit_flag
+;		IFT FEAT_FULL_16BIT
+;		bit JOIN_34
+;		beq get_15khz_flag 
+;		bit CH3_179
+;		bne get_16bit_flag
+;		EIF 
+
 	EIF
-	ELS
-;	beq get_15khz_flag	; unconditional	
-	EIF
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
 	
 get_15khz_flag
 	and #1			; #$01 == 15khz flag, unconditional 
 	beq store_tables_lsb	; #$00 == 64khz flag, unconditional
-check_15khz			; #$01 = 15khz flag, unconditional
+check_15khz 
 	cpy #$0C		; are we in Distortion C/E?
 	bcs check_15khz_b	; if equal or above, use the Distortion C 15khz table, else, use the Distortion A 15khz table
 	lda #<frqtabpure_15khz	; Distortion A 15khz table LSB
@@ -1036,78 +1116,23 @@ check_15khz_c
 	lda #>PAGE_EXTRA_0	; tables MSB pointer, it's the same one regardless of the table used
 	bne store_tables_lsb_a	; unconditional 
 	
-	IFT FEAT_FULL_16BIT
+	IFT FEAT_FULL_16BIT	;* TODO: Implement this idea in a better way, maybe in the Aggressive Init section, along with Sawtooth, and other special tricks? 
 get_16bit_flag
-	lda #$80		; #$80 == Valid 16-bit flag, unconditional 
-	sta nr			; 16-bit hi LSB
-	lda #$C0		; 64 bytes further for the 16-bit LSB table
-	sta pointer16bitlo  	; 16-bit lo LSB
-	lda #0			; no volume output, Distortion won't matter
-	sta trackn_audc-1,x	; process the next channel's AUDC early, no sound is wanted  
-	lda TABLES_MSB,y
-	sta pointer16bitlo+1	; 16-bit lo MSB
-	bne store_tables_lsb_a	; unconditional, finish in the middle of the 64khz/1.79mhz branch
+	lda #$80		; 16-bit pointer for the tables LSB 
+	bne store_tables_lsb	; unconditional, finish in the middle of the 64khz/1.79mhz branch
 	EIF
 	
 get_179_flag
 	lda #$40		; #$40 == 1.79mhz flag, unconditional 
-	ELS
 	
-;*!!! FEAT_AUDCTLMANUALSET is not defined, so we must use some alternative code for a few things such as BASS16! 
-				
-	IFT FEAT_BASS16
-	cpy #$06 		; Distortion 6?
-	bne no_index		; channels MUST be checked, even with AUDCTL == 0, in order to process the BASS16 code properly!
-	lda tmp 		; volume value backup
-	beq no_index		; if the volume is 0, no BASS16
-check_index
-	IFT TRACKS>4		; stereo mode
-	cpx #4			; are we in the right POKEY channels?
-	bcc check_index_mono	; if x is lower than 4, we are not
-check_index_stereo	
-	cpx #7			; ch4
-	beq check_ch4
-	cpx #5			; ch2
-	beq check_ch2	
-	bne no_index		; ch1 is unconditional, the other 3 channels were already tested!
-	EIF
-check_index_mono
-	cpx #3			; ch4
-	beq check_ch4
-	cpx #1			; ch2
-	beq check_ch2		
-	bne no_index		; ch1 is unconditional, the other 3 channels were already tested! 
-check_ch4 
-	lda #$28		; JOIN_34 + CH3_179 bits 
-	bne hellyes		; unconditional	
-check_ch2 
-	lda #$50		; JOIN_12 + CH1_179 bits 
-hellyes
-	jmp do_bass16
-	IFT FEAT_FULL_16BIT
-get_16bit_flag
-	lda #$80		; #$80 == Valid 16-bit flag, unconditional 
-	sta nr			; 16-bit hi LSB
-	lda #$C0		; 64 bytes further for the 16-bit LSB table
-	sta pointer16bitlo  	; 16-bit lo LSB
-	lda #0			; no volume output, Distortion won't matter
-	sta trackn_audc-1,x	; process the next channel's AUDC early, no sound is wanted  
-	lda TABLES_MSB,y
-	sta pointer16bitlo+1	; 16-bit lo MSB
-	bne store_tables_lsb_a	; unconditional, finish in the middle of the 64khz/1.79mhz branch
-	EIF
-	EIF			
-no_index	
-	lda #0			; use to overwrite the tables LSB pointer
-	EIF	
-			
-;*!!! end of condition FEAT_AUDCTLMANUALSET
+	EIF			;*!!! end of condition FEAT_AUDCTLMANUALSET
 	
 store_tables_lsb
 	sta nr			; tables LSB pointer, divided in slices of 64 bytes each	
 	lda TABLES_MSB,y
 store_tables_lsb_a
 	sta nr+1		; tables MSB pointer, which is the memory page used for tables divided based on their Distortion
+	
 store_tables_lsb_b
 	lda tmp			; volume value backup
 	ora DISTORTIONS,y	; merge the Distortion and Volume values
@@ -1264,13 +1289,6 @@ jmx	bcc *
 	
 cmd1
 	IFT FEAT_COMMAND1
-	IFT FEAT_FULL_16BIT||FEAT_BASS16
-	lda pointer16bitlo+1
-	beq cmd1a		; 16-bit mode not active
-	lda #0			; force the LSB channel to have empty values as a failsafe
-	sta trackn_audf-1,x
-	EIF
-cmd1a	
 	lda reg3
 	jmp cmd0c
 	EIF
@@ -1304,6 +1322,17 @@ cmd5
 	lda trackn_tabletypespeed,x
 	bpl cmd5a1
 	ldy trackn_note,x
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16
+	lda g_flag,x
+	bpl cmd5a0
+	tya 
+	asl @
+	tay
+	iny
+	EIF
+
+cmd5a0
 	lda (nr),y
 	clc
 	adc trackn_tablenote,x
@@ -1318,6 +1347,17 @@ cmd5a1
 	lda #63
 cmd5a2
 	tay
+	
+	IFT FEAT_FULL_16BIT||FEAT_BASS16	;* TODO: fix the proper 16-bit mode, as well as the Sawtooth and/or AUTOFILTER when combined as well
+	lda g_flag,x
+	bpl cmd5a3
+	tya 
+	asl @
+	tay
+	iny
+	EIF
+
+cmd5a3	
 	lda (nr),y
 cmd5ax
 	sta trackn_portafrqc,x
@@ -1342,7 +1382,7 @@ cmd5a
 	jmp cmd0a
 	EIF
 cmd6
-	IFT FEAT_COMMAND6&&FEAT_FILTER	
+	IFT FEAT_COMMAND6&&FEAT_FILTER		;* POTENTIAL IMPROVEMENT: do NOT stack the effects together, and start the offset at 0!
 	lda reg3
 	clc
 	adc trackn_filter,x
@@ -1426,43 +1466,71 @@ cmd0a1
 	tay
 	
 cmd0a1_a
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
+	
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
-	lda pointer16bitlo+1
-	beq cmd0a2		; 16-bit mode not active
+	
+	lda g_flag,x		; verify which channel has the 16-bit mode enabled
+	beq cmd0a3		; no 16-bit flag set
+	bpl cmd0a2		; Sawtooth flag set
+
+	tya
+	asl @			; offset for the 16-bit addressing!!!
+	tay
+	iny			; offset to load the MSB value first
 	lda (nr),y
-	sta trackn_audf,x	; get and store the MSB early
+	dey			; offset to load the LSB value later
+;		sta trackn_bass16,x	; get and store the MSB channel early
+	sta trackn_audf,x	; get and store the MSB channel early
 	lda trackn_shiftfrq,x
+	
 	IFT FEAT_COMMAND2
 	clc
 	adc frqaddcmd2
 	EIF
+	
 	sta tmp			; get and store the frequency shift early, combined if CMD2 is also enabled
 	bmi cmd0a1sub		; will subtract 1 from the MSB if negative on overflow
+	
 cmd0a1add
-	lda (pointer16bitlo),y
+	lda (nr),y
 	clc
 	adc tmp
-	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	sta trackn_bass16-1,x	; LSB channel
 	bcc cmd0a1adddone	; no overflow, done
+;		inc trackn_bass16,x	; increment the MSB if the value went past #$FF
 	inc trackn_audf,x	; increment the MSB if the value went past #$FF
+	
 cmd0a1adddone	
 	jmp pp9			; done
+
+;		lda trackn_bass16,x
+;		jmp cmd0c
+	
 cmd0a1sub
-	lda (pointer16bitlo),y
+	lda (nr),y
 	clc
 	adc tmp
-	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	sta trackn_bass16-1,x	; LSB channel
 	bcs cmd0a1adddone	; no overflow, done
+;		dec trackn_bass16,x	; decrement the MSB if the value went past #$00
 	dec trackn_audf,x	; decrement the MSB if the value went past #$00
+	
 cmd0a1subdone	
 	jmp pp9			; done
+
+;		lda trackn_bass16,x
+;		jmp cmd0c
+	
 	EIF
+	
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
 	
 cmd0a2	
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
-	lda sawtoothtables+1
-	beq cmd0a3		; sawtooth not active
-	lda (sawtoothtables),y
+	lda (nr),y
 	clc
 	adc trackn_shiftfrq,x
 	IFT FEAT_COMMAND2
@@ -1470,6 +1538,8 @@ cmd0a2
 	adc frqaddcmd2
 	EIF	
 	sta trackn_audf+2,x	; since we're in channel 1 of either POKEY, offset +2 will always be the 3rd channel
+	pla			; get the second sawtooth pointer back from stack
+	sta nr			; update the tables pointer to the other sawtooth table
 	EIF
 
 cmd0a3
@@ -1493,55 +1563,86 @@ cmd0b1
 	tay
 
 cmd0b1_a
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
+
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
-	lda pointer16bitlo+1
-	beq cmd0b2		; 16-bit mode not active
+	
+	lda g_flag,x		; verify which channel has the 16-bit mode enabled
+	beq cmd0b3		; no 16-bit flag set
+	bpl cmd0b2		; Sawtooth flag set
+
+	tya
+	asl @			; offset for the 16-bit addressing!!!
+	tay
+	iny			; offset to load the MSB value first
 	lda (nr),y
-	sta trackn_audf,x	; get and store the MSB early
+	dey			; offset to load the LSB value later
+;		sta trackn_bass16,x	; get and store the MSB channel early
+	sta trackn_audf,x	; get and store the MSB channel early
 	lda trackn_shiftfrq,x
 	clc
 	adc trackn_tablenote,x
-	clc	
+	clc
+	
 	IFT FEAT_COMMAND2
 	clc
 	adc frqaddcmd2
 	EIF
+	
 	sta tmp			; get and store the frequency shift early, combined if CMD2 is also enabled
 	bmi cmd0b1sub		; will subtract 1 from the MSB if negative on overflow
+	
 cmd0b1add
-	lda (pointer16bitlo),y
+	lda (nr),y
 	clc
 	adc tmp
-	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	sta trackn_bass16-1,x	; LSB 16-bit channel, update early here
 	bcc cmd0b1adddone	; no overflow, done
+;		inc trackn_bass16,x	; increment the MSB if the value went past #$FF
 	inc trackn_audf,x	; increment the MSB if the value went past #$FF
+	
 cmd0b1adddone	
 	jmp pp9			; done
+
+;		lda trackn_bass16,x
+;		jmp cmd0c
+	
 cmd0b1sub
-	lda (pointer16bitlo),y
+	lda (nr),y
 	clc
 	adc tmp
-	sta trackn_audf-1,x	; LSB 16-bit channel, update early here
+	sta trackn_bass16-1,x	; LSB 16-bit channel, update early here
 	bcs cmd0b1adddone	; no overflow, done
+;		dec trackn_bass16,x	; decrement the MSB if the value went past #$00
 	dec trackn_audf,x	; decrement the MSB if the value went past #$00
+	
 cmd0b1subdone	
 	jmp pp9			; done
+
+;	lda trackn_bass16,x
+;	jmp cmd0c
+	
 	EIF
+
+
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; MUST FIX
 	
 cmd0b2	
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
-	lda sawtoothtables+1
-	beq cmd0b3		; sawtooth not active
 	lda trackn_shiftfrq,x
 	clc
 	adc trackn_tablenote,x
 	clc
-	adc (sawtoothtables),y
+	adc (nr),y	
 	IFT FEAT_COMMAND2
 	clc
 	adc frqaddcmd2
 	EIF	
 	sta trackn_audf+2,x	; since we're in channel 1 of either POKEY, offset +2 will always be the 3rd channel
+	pla			; get the second sawtooth pointer back from stack
+	sta nr			; update the tables pointer to the other sawtooth table
 	EIF
 
 cmd0b3
@@ -1564,6 +1665,7 @@ cmd0c
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 ;* start of Portamento code... This is currently not properly compatible with 16-bit mode or Sawtooth, unfortunately.
+;* TODO: fix Portamento for things that use combined channels to run
 	
 pp9
 	IFT FEAT_PORTAMENTO
@@ -1608,22 +1710,6 @@ pp11
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 	
 ;* part of mainloop code... this is an extra step added for the purpose of clearning the memory from 16-bit or Sawtooth addresses when unused.
-
-	IFT FEAT_FULL_16BIT||FEAT_BASS16||[FEAT_FULL_SAWTOOTH+FEAT_AUDCTLMANUALSET]=2
-	ldy #0			; reset the values to 0, since they're no longer needed for checks
-	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
-	sty sawtoothtables
-	sty sawtoothtables+1
-	EIF
-pp11a
-	IFT FEAT_FULL_16BIT||FEAT_BASS16
-	lda pointer16bitlo+1
-	beq ppnext		; 16-bit mode not active, no overwrite
-	sty pointer16bitlo
-	sty pointer16bitlo+1
-	dex			;* skip the next channel since it was updated early!!
-	EIF
-	EIF
 	
 ppnext
 	dex
@@ -1632,10 +1718,77 @@ ppnext
 rmt_p4
 
 ;* end of mainloop code... everything below will be conditionally assembled for easy optimisation.
+
+;---------------------------------------------------------------------------------------------------------------------------------------------;
+
+;* start of 16-bit flag code... a much more stripped down version
+;* TODO: implement in a much more efficient way...
+
+	IFT FEAT_FULL_16BIT||FEAT_BASS16	;****
+bb0
+	ldy #0					; will be used to mute channels and reset the flag
+bb1	
+	lda g_flag+1
+	bpl bb2					; not 16-bit flag, do nothing here	
+;	sty trackn_audc+0			; mute ch1
+	lda trackn_bass16+0			; ch1
+	sta trackn_audf+0
+;	lda trackn_bass16+1			; ch2
+;	sta trackn_audf+1
+bb2
+	lda g_flag+3
+	bpl bb3					; not 16-bit flag, do nothing here
+;	sty trackn_audc+2			; mute ch3
+	lda trackn_bass16+2			; ch3
+	sta trackn_audf+2
+;	lda trackn_bass16+3			; ch4
+;	sta trackn_audf+3
+bb3
+	sty g_flag+0				; reset the flag and channels for the next play
+	sty g_flag+1
+	sty g_flag+2
+	sty g_flag+3
+	sty trackn_bass16+0
+;	sty trackn_bass16+1
+	sty trackn_bass16+2
+;	sty trackn_bass16+3
+	
+	IFT STEREOMODE==1
+bs1	
+	lda g_flag+1+4
+	bpl bs2					; not 16-bit flag, do nothing here	
+;	sty trackn_audc+0+4			; mute ch1
+	lda trackn_bass16+0+4			; ch1
+	sta trackn_audf+0+4
+;	lda trackn_bass16+1+4			; ch2
+;	sta trackn_audf+1+4
+bs2
+	lda g_flag+3+4
+	bpl bs3					; not 16-bit flag, do nothing here
+;	sty trackn_audc+2+4			; mute ch3
+	lda trackn_bass16+2+4			; ch3
+	sta trackn_audf+2+4
+;	lda trackn_bass16+3+4			; ch4
+;	sta trackn_audf+3+4
+bs3
+	sty g_flag+0+4				; reset the flag and channels for the next play
+	sty g_flag+1+4
+	sty g_flag+2+4
+	sty g_flag+3+4
+	sty trackn_bass16+0+4
+;	sty trackn_bass16+1+4
+	sty trackn_bass16+2+4
+;	sty trackn_bass16+3+4
+	EIF
+	
+	EIF					;****
+
+;* end of 16-bit flag code...
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 
 ;* start of Autofilter code... a much more stripped down version
+;* TODO: redesign the implementation to allow a much more precise manipulation to be achieved
 
 	IFT FEAT_FILTER
 	ldx v_audctl 
@@ -1654,6 +1807,7 @@ qq1a
 	txa
 	ora #4
 	tax
+		
 	EIF
 qq2
 	IFT FEAT_FILTERG1L
@@ -1670,6 +1824,7 @@ qq2a
 	txa
 	ora #2
 	tax
+		
 	EIF
 qq3
 	stx v_audctl
@@ -1723,17 +1878,18 @@ rmt_p5
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
 
-;* start of Sawtooth code...
+;* start of Sawtooth code... FIXMEEEEEEEEEEEEEEEEEEEE!!! it's currently brokeded
 
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 do_sawtooth
-	lda reg2
-	bpl hijack_sawtooth_done	; AUTOFILTER command is off, skip overwriting the other things	
+
 	IFT FEAT_FILTER
 	eor #$80			; inverts the AUTOFILTER bit, so it does not overwrite things later
 	sta trackn_command,x		; overwrite the command byte before the AUTOFILTER code since things where done early
 	EIF
-	lda #4				; high pass filter, CH1+3
+
+	lda #$64			; high pass filter, CH1+3 + 1.79mhz CH1+3
+	
 	IFT TRACKS>4			; stereo mode
 	cpx #4				; are we in the right POKEY channels?
 	bcc sawtooth_audctl_mono	; if x is lower than 4, we are not
@@ -1741,9 +1897,11 @@ do_sawtooth
 	sta v_audctl2			; store the new AUDCTL value, right POKEY
 	bne sawtooth_audctl_done	; unconditional
 	EIF
+	
 sawtooth_audctl_mono	
 	ora v_audctl			; combine the existing AUDCTL value to it
 	sta v_audctl			; store the new AUDCTL value, left POKEY
+	
 sawtooth_audctl_done
 	IFT FEAT_COMMAND6		; Sawtooth CMD6 hack... could be optimised much better, or maybe moved into the commands? 
 	lda reg2			; Command and Distortion
@@ -1753,29 +1911,37 @@ sawtooth_audctl_done
 	lda reg3			; $XY parameter
 	beq hijack_sawtooth_done	; skip if the value is 0, nothing will be changed
 	bmi sawtooth_reverse		; negative values (#$80 to #$FF) will reverse the pointers, positive values (#$01 to #$7F) will set the pointers back to normal
+	
 sawtooth_normal
 	lda #<frqtabsawtooth_ch1
 	sta saw_ch1
 	lda #<frqtabsawtooth_ch3
 	sta saw_ch3	
 	bpl hijack_sawtooth_done
+	
 sawtooth_reverse
 	lda #<frqtabsawtooth_ch3
 	sta saw_ch1
 	lda #<frqtabsawtooth_ch1
 	sta saw_ch3	
 	EIF
+	
 hijack_sawtooth_done
 	lda #<frqtabsawtooth_ch1
 saw_ch1	equ *-1	
-	sta nr 
+
+	pha				; very TEMPORARILY keep the other pointer in the stack
+	
 	lda #<frqtabsawtooth_ch3
 saw_ch3	equ *-1	
-	sta sawtoothtables
+
+	sta nr
+	inc g_flag,x			; set a quick and dirty flag for the sawtooth mode
+
 hijack_sawtooth_done_a
 	lda #>PAGE_EXTRA_0		; tables MSB pointer, it's the same one regardless of the table used
-	sta sawtoothtables+1		; for the other channel later, also used as a check if it is enabled	
 	jmp store_tables_lsb_a		; finish in the middle of the 64khz/1.79mhz branch
+	
 	EIF
 
 ;* end of Sawtooth code...
@@ -1785,7 +1951,9 @@ hijack_sawtooth_done_a
 ;* start of BASS16 code...
 
 	IFT FEAT_BASS16	
+	
 do_bass16 
+
 	IFT TRACKS>4		; stereo mode
 	cpx #4			; are we in the right POKEY channels?
 	bcc do_bass16_a 	; if x is lower than 4, we are not
@@ -1793,10 +1961,13 @@ do_bass16
 	sta v_audctl2		; overwrite the AUDCTL, to force 16-bit mode through Distortion 6
 	bne do_bass16_b		; unconditional	
 	EIF
+	
 do_bass16_a
 	ora v_audctl		; merge the values with the AUDCTL in memory
 	sta v_audctl		; overwrite the AUDCTL, to force 16-bit mode through Distortion 6
+	
 do_bass16_b
+
 	IFT FEAT_COMMAND6&&FEAT_FULL_16BIT
 	lda reg2		; Distortion and Commands
 	and #$70		; leave only the Commands bits
@@ -1806,25 +1977,31 @@ do_bass16_b
 	and #$0E		; strip away all unwanted bits, left nybble will not affect anything
 	sta bass16_pointer	; PERMANENTLY change the value until a new CMD6 value is read
 	EIF
+	
 	IFT FEAT_FULL_16BIT	
 do_bass16_c
 	ldy #$0A		; Distortion A
 bass16_pointer equ *-1 
+	inc g_flag-1,x		; 16-bit LSB flag 
+	dec g_flag,x		; 16-bit MSB flag 
 	jmp get_16bit_flag	; process the remaining of the 16-bit code from there
-	ELS
+	
+	ELS			;* FIXMEEEE
+	
 	lda #<frqtabpure_hi
 	sta nr
 	lda #<frqtabpure_lo
-	sta pointer16bitlo 	
+	sta trackn_bass16 	
 	lda #0				
 	sta trackn_audc-1,x	; update the next channel's AUDC early, it will always be volume 0, and Distortion won't matter
 	lda #>PAGE_DISTORTION_A
-	sta pointer16bitlo+1	; this value can also be used to identify if 16-bit mode is active or not, since it will never be 0
+	sta trackn_bass16+1	; this value can also be used to identify if 16-bit mode is active or not, since it will never be 0
 	sta nr+1
 	lda tmp
 	ora #$A0
 	jmp store_tables_lsb_c
 	EIF
+	
 	EIF
 
 ;* end of BASS16 code...
@@ -1871,15 +2048,15 @@ v_audctl equ *-1			; left POKEY AUDCTL is loaded as the very first thing, for al
 	stx $d207
 	lda #0
 v_audctl2 equ *-1
-	sty $d208
 	sta $d218
+	sty $d208
 	IFT FEAT_TWO_TONE
 	lda #$03
 v_skctl equ *-1	
 	ldy #$03
 v_skctl2 equ *-1
-	sta $d20f	
-	sty $d21f		
+	sty $d21f
+	sta $d20f 		
 	EIF
 	ELI STEREOMODE==0		;* L1 L2 L3 L4
 	lda trackn_audf+0

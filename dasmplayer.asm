@@ -33,7 +33,7 @@ REGIONPLAYBACK	equ 1		; 0 => PAL
 STEREODEFINED	equ 0
 
 	IFT !STEREODEFINED
-STEREOMODE	equ 1
+STEREOMODE	equ 0
 	EIF
 				;* 0 => compile RMTplayer for 4 tracks mono
 				;* 1 => compile RMTplayer for 8 tracks stereo
@@ -247,8 +247,15 @@ do_vbi_fix
 do_speed_init
 	lda tabpp-1,y		; load from the line counter spacing table
 	sta acpapx2		; lines between each play
+
+	lda SKSTAT		; Serial Port Status
+	and #$08		; SHIFT key being held?
+	beq no_dma		; yes, skip the next 2 instructions
+	
 	ldx #$22		; DMA enable, normal playfield
 	stx SDMCTL		; write to Shadow Direct Memory Access Control address
+	
+no_dma
 	ldx #100		; load into index x a 100 frames buffer
 wait_init   
 	jsr wait_vblank		; wait for vblank => 1 frame
@@ -260,6 +267,7 @@ wait_init
 region_init			; 50 Hz or 60 Hz?
 	stx vcount		; x = 0, use it here
 	ldx #156		; default value for all regions
+;	ldx #$A0
 onefiftysix equ *-1		; adjustments
 region_loop	
 	lda vcount
@@ -653,10 +661,12 @@ done_blink
 	txa
 	jsr printhex_direct
 
+	IFT !FEAT_CONSTANTSPEED
 ; print speed
 	ldy #20
 	lda v_speed
 	jsr printhex_direct 
+	EIF
 
 ; print order	
 	ldy #28
@@ -697,6 +707,38 @@ v_ord	equ *-1
 ; line 1: pf3
 ; line 2-3: pf1, use also on numbers below line 5
 ; line 4: pf0 
+
+; rambles...
+; LSR @ 2x from the volume values lead to this observation:
+
+; F to C => 3
+; B to 8 => 2
+; 7 to 4 => 1
+; 3 to 0 => 0
+
+; now... how could this actually helps me...?
+; hmmm... 
+
+; one way to imagine this is, using these values as JMPs, I would land on the first line that does have characters to draw
+; but there I still cannot exactly know where I am really supposed to be, so that is still going to be a problem...
+
+; another idea is to make a table of JMP/Branches, but then I get other problems... this is tricky.
+; I could also go on a column by column basis, where X is the index for variables, and Y handles the screen index?
+; but then again that still gets messy... argh.
+
+; ok here's an idea:
+; use AND operations as BIT, make jumps based on them, through the necessary LSR needed to get the values
+; that will remove the necessity from using X for line index, and maybe save the CPU this time... I hope
+
+; line 1 => AND with #$0C, BEQ draw blank tile, remaining values are LSR twice, then branched to the appropriate tile
+; line 2 => AND with #$08, BEQ draw blank tile, remaining values are LSR once, then branched to the appropriate tile
+; line 3 => AND with #$04, BEQ draw blank tile, remaining values are used directly to branch to the appropriate tile
+
+; ...
+; ... no that won't work, bleh.
+; too tired for today.
+; maybe I could do with subtractions?
+; heh I need sleep
 
 begindraw
 	mwa #mode_6+2 DISPLAY	; set the position on screen, offset by 2 in order to be centered
@@ -1124,7 +1166,7 @@ line_0d dta $44,$42,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,
 ; subtunes display, and control buttons 
 
 line_0e	dta $44
-	dta d" Tune: 00/00   "
+	dta d" Tune: 01/01   "
 line_0e1	
 	dta $7B,$00 			; STOP button, will be overwritten 
 	dta d"STOP   "			; STOP text, will be overwritten 
