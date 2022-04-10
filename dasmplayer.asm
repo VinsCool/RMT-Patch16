@@ -28,13 +28,9 @@ STARTLINE	equ 0
 REGIONPLAYBACK	equ 1		; 0 => PAL
 				; 1 => NTSC
 
-; Stereo mode must be defined in 'rmt_feat.a65', in this case, this must be set to 1, otherwise, it will be defined here
+; Stereo mode must be defined here instead of 'rmt_feat.a65'
 
-STEREODEFINED	equ 0
-
-	IFT !STEREODEFINED
 STEREOMODE	equ 0
-	EIF
 				;* 0 => compile RMTplayer for 4 tracks mono
 				;* 1 => compile RMTplayer for 8 tracks stereo
 				;* 2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
