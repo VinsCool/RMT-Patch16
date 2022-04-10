@@ -24,7 +24,7 @@
 ;* start of RMT definitions...
 
 	IFT FEAT_IS_SIMPLEP
-PLAYER			equ $3200	; VUPlayer export driver 
+PLAYER			equ $3100	; VUPlayer export driver 
 	ELS
 PLAYER			equ $3400	; tracker.obx driver and everything else by default
 	EIF
@@ -815,7 +815,6 @@ pp0
 ;* Assign flags early here as soon as possible 
 	
 	IFT FEAT_FULL_16BIT||FEAT_BASS16||FEAT_FULL_SAWTOOTH 
-	
 	tay				; backup the now combined audctl for the flags attribution 
 	and #1				; 64khz == 0, 15khz == 1 always, the other flags will then take priority over this
 	sta g_flag+0			; ch1
@@ -850,42 +849,67 @@ pp0_e
 pp0_f		
 	stx g_flag+2			; flag set in ch3 
 pp0_g 
-
 	EIF
 	
-	IFT TRACKS>4			; TODO: stereo 
-	
+	IFT TRACKS>4			; Stereo 
 	lda trackn_audctl+4
 	ora trackn_audctl+5
 	ora trackn_audctl+6
 	ora trackn_audctl+7
 	sta v_audctl2	
-	
-	IFT FEAT_FULL_16BIT||FEAT_BASS16||FEAT_FULL_SAWTOOTH 
-	; something
-	EIF	
-	
-	EIF
 
+	IFT FEAT_FULL_16BIT||FEAT_BASS16||FEAT_FULL_SAWTOOTH 
+	tay				; backup the now combined audctl for the flags attribution 
+	and #1				; 64khz == 0, 15khz == 1 always, the other flags will then take priority over this
+	sta g_flag+0+4			; ch1
+	sta g_flag+1+4			; ch2
+	sta g_flag+2+4			; ch3
+	sta g_flag+3+4			; ch4
+	tya				; get the AUDCTL back for the BIT tests below 
+pp0_h	
+	bit CH1_179
+	beq pp0_k			; BNE => 1.79mhz, BEQ => Nothing, skip the next BIT test 	
+	bit JOIN_12
+	bne pp0_i			; BNE => 16-bit, BEQ => 1.79mhz 
+	ldx #$40			; 1.79mhz pointer
+	bne pp0_j			; unconditional 
+pp0_i
+	ldx #$80			; 16-bit pointer
+	stx g_flag+1+4			; flag set in ch2
+	dex				; #$80 becomes #$7F
+pp0_j		
+	stx g_flag+0+4			; flag set in ch1
+pp0_k 
+	bit CH3_179 
+	beq pp0_n			; BNE => 1.79mhz, BEQ => Nothing, skip the next BIT test 
+	bit JOIN_34
+	bne pp0_l			; BNE => 16-bit, BEQ => 1.79mhz 
+	ldx #$40			; 1.79mhz pointer
+	bne pp0_m			; unconditional 
+pp0_l
+	ldx #$80			; 16-bit pointer
+	stx g_flag+3+4			; flag set in ch4 
+	dex				; #$80 becomes #$7F 
+pp0_m		
+	stx g_flag+2+4			; flag set in ch3 
+pp0_n 
+	EIF	
+	EIF
 	ELS
-	
 	lda #0
 	sta v_audctl
-	
 	IFT TRACKS>4
 	sta v_audctl2
 	EIF
-	
 	EIF
 
-pp0_z
+pp0_o
 	ldx #TRACKS-1			; must get the tracks value again before the next part
 
 pp1					; copying the values to the zeropage to make things faster... but not all bytes need this...
 
 ;* OPTIMISATION: reg1 is now free to use for a different purpose! 
-	
-pp1_a
+
 	lda trackn_instrhb,x
 	bne pp1_b			; continue if not equal 
 	jmp ppnext			; skip this channel and process the next one

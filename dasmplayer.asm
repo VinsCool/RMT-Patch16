@@ -30,7 +30,7 @@ REGIONPLAYBACK	equ 1		; 0 => PAL
 
 ; Stereo mode must be defined here instead of 'rmt_feat.a65'
 
-STEREOMODE	equ 0
+STEREOMODE	equ 1
 				;* 0 => compile RMTplayer for 4 tracks mono
 				;* 1 => compile RMTplayer for 8 tracks stereo
 				;* 2 => compile RMTplayer for 4 tracks stereo L1 R2 R3 L4
