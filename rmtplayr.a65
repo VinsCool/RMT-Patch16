@@ -1269,7 +1269,11 @@ jmx	bcc *
 cmd1
 	IFT FEAT_COMMAND1
 	lda reg3
+	IFT FEAT_PORTAMENTO
+	jmp pp10d		; fixes Portamento overwriting the CMD1 command (absolute pitch) 
+	ELS
 	jmp cmd0c
+	EIF
 	EIF
 cmd2
 	IFT FEAT_COMMAND2
@@ -1298,64 +1302,75 @@ cmd4
 cmd5
 	IFT FEAT_COMMAND5&&FEAT_PORTAMENTO
 	IFT FEAT_TABLETYPE
-	lda trackn_tabletypespeed,x
-	bpl cmd5a1
-	ldy trackn_note,x
+	lda trackn_tabletypespeed,x		; table type? 
+	bpl cmd5a1				; positive is notes table mode
+	ldy trackn_note,x			; current note
 	
 	IFT FEAT_FULL_16BIT||FEAT_BASS16
-	lda reg1
-	bpl cmd5a0
+	lda reg1				; flag in memory
+	bpl cmd5a0				; positive means no 16-bit mode active
 	tya 
-	asl @
+	asl @					; offset for the 16-bit addressing
 	tay
-	iny
+	iny					; 16-bit MSB offset
 	EIF
 
 cmd5a0
-	lda (nr),y
-	clc
-	adc trackn_tablenote,x
-	jmp cmd5ax
+	lda (nr),y				; actual note from table
+	clc					; clear carry flag
+	
+;		adc trackn_tablenote,x			; frequency from table-- FIXME: might overflow!
+
+	bpl cmd5a0a				; positive range, nothing to worry about
+	adc trackn_tablenote,x			; add the frequency from table
+	bmi cmd5a0b				; no overflow, all good!
+	lda #$FF				; lowest possible pitch
+	bmi cmd5a0b				; unconditional
+	
+cmd5a0a
+	adc trackn_tablenote,x			; add the frequency from table
+cmd5a0b
+	jmp cmd5ax				; process the remaining of the code there
 	EIF
 cmd5a1
-	lda trackn_note,x
-	clc
-	adc trackn_tablenote,x
-	cmp #61
-	bcc cmd5a2
-	lda #63
+	lda trackn_note,x			; current note
+	clc					; clear carry
+	adc trackn_tablenote,x			; add the note from table
+	cmp #61					; max possible note 
+	bcc cmd5a2				; branch if lower than 61, finish with it 
+	lda #63					; else, max possible note value
 cmd5a2
 	tay
 	
 	IFT FEAT_FULL_16BIT||FEAT_BASS16	;* TODO: fix the proper 16-bit mode, as well as the Sawtooth and/or AUTOFILTER when combined as well
-	lda reg1
-	bpl cmd5a3
+	lda reg1				; flag in memory
+	bpl cmd5a3				; positive means no 16-bit mode active
 	tya 
-	asl @
+	asl @					; offset for the 16-bit addressing
 	tay
-	iny
+	iny					; 16-bit MSB offset
 	EIF
 
 cmd5a3	
-	lda (nr),y
+	lda (nr),y				; actual note from table
 cmd5ax
-	sta trackn_portafrqc,x
-	ldy reg3
-	bne cmd5a
-	sta trackn_portafrqa,x
+	sta trackn_portafrqc,x			; set the target portamento frequency
+	ldy reg3				; #$XY instrument parameter
+	bne cmd5a				; jump aheead if not zero 
+	sta trackn_portafrqa,x			; else, set the current portamento pitch instantly
 cmd5a
-	tya
+	tya					; transfer the #$XY parameter to the accumulator
+	lsr @					; divide by 16
 	lsr @
 	lsr @
 	lsr @
-	lsr @
-	sta trackn_portaspeed,x
+	sta trackn_portaspeed,x			; set the portamento speed with the new value
 	sta trackn_portaspeeda,x
-	lda reg3
-	and #$0f
-	sta trackn_portadepth,x
-	lda trackn_note,x
-	jmp cmd0a
+	lda reg3				; #$XY parameter again
+	and #$0f				; Only keep the Y values
+	sta trackn_portadepth,x			; set the portamento pitch offset to process each step
+	lda trackn_note,x			; current note
+	jmp cmd0a				; finish everything else like normal from there
 	ELI FEAT_COMMAND5
 	lda trackn_note,x
 	jmp cmd0a
@@ -1516,17 +1531,15 @@ cmd0a3
 	clc			; clear carry 
 	bpl cmd0a3c		;* if the value is already in the positive range, nothing to worry about!
 cmd0a3a				; #$FF to #$7F, especially around #$FF, better be cautious!	
-	sta tmp			; temporary backup before the offset calculations 
 	adc trackn_shiftfrq,x	; vibrato, and some other shifts use this value 
 	bmi cmd0a3b		; no overflow, we good!
-	lda tmp			; reload the frequency without being offset and use it directly instead 
+	lda #$FF
 cmd0a3b
 	IFT FEAT_COMMAND2 	; second layer of protection, if vibrato and CMD2 were combined
-	sta tmp			; backup again before the CMD2 offset-- TODO: optimise better
 	clc			; clear carry again
 	adc frqaddcmd2		; if the CMD2 feature is also enabled, add that value into the offset as well 
 	bmi cmd0a4		; no overflow, we good!
-	lda tmp			; reload the frequency without being offset and use it directly instead 
+	lda #$FF
 	EIF 
 	bmi cmd0a4		; finish from here like normal
 cmd0a3c			
@@ -1627,20 +1640,18 @@ cmd0b3
 cmd0b3a				; #$FF to #$7F, especially around #$FF, better be cautious!
 	adc trackn_shiftfrq,x
 	bmi cmd0b3b
-	lda tmp 		; needs to be improved... that's a dumb method for sure, lda and sta to the same place, aargh
+	lda #$FF
 cmd0b3b
-	sta tmp
 	clc
 	adc trackn_tablenote,x
 	bmi cmd0b3c
-	lda tmp
+	lda #$FF
 cmd0b3c
 	IFT FEAT_COMMAND2
-	sta tmp
 	clc
 	adc frqaddcmd2
 	bmi cmd0b4
-	lda tmp
+	lda #$FF
 	EIF
 	bmi cmd0b4
 cmd0b3d 			
@@ -1666,43 +1677,78 @@ cmd0c
 	
 ;* start of Portamento code... This is currently not properly compatible with 16-bit mode or Sawtooth, unfortunately.
 ;* TODO: fix Portamento for things that use combined channels to run
+;* UPDATE: starting to understand a bit more how Portamento is working in the code...
+;* POTENTIAL IMPROVEMENT: process the command in a different order? Add CMD2 pitch, and Vibrato Fix?
+;* Maybe even set a flag to make sure the "reached" pitch clears the portamento mode? 
+;* That way, it won't try to process it infinitely and possibly output incorrect pitch...
 	
 pp9
 	IFT FEAT_PORTAMENTO
-	lda trackn_portaspeeda,x
-	beq pp10
-	dec trackn_portaspeeda,x
-	bne pp10
-	lda trackn_portaspeed,x
-	sta trackn_portaspeeda,x
-	lda trackn_portafrqa,x
-	cmp trackn_portafrqc,x
-	beq pp10
-	bcs pps1
-	adc trackn_portadepth,x
-	bcs pps8
-	cmp trackn_portafrqc,x
-	bcs pps8
-	jmp pps9
-pps1
-	sbc trackn_portadepth,x
-	bcc pps8
-	cmp trackn_portafrqc,x
-	bcs pps9
+	lda trackn_portaspeeda,x	; is the portamento effect curently active?
+	beq pp10			; it will be skipped if equal 
+	dec trackn_portaspeeda,x	; decrease the value by 1
+	bne pp10			; then jump ahead if it is not 0
+	lda trackn_portaspeed,x		; portamento speed in memory
+	sta trackn_portaspeeda,x	; overwrite the current portamento speed value to reset it
+	lda trackn_portafrqa,x		; current portamento frequency in memory
+	cmp trackn_portafrqc,x		; compare to target frequency
+	beq pp10			; if equal, portamento is done and can be skipped
+	bcs pps1			; if the current portamento pitch is higher, branch here
+	
+pps0	; else, it is below the target pitch here
+	adc trackn_portadepth,x		; add the portamento frequency offset to it
+	bcs pps8			; overflown? branch if the carry flag is set
+	cmp trackn_portafrqc,x		; compare to the target frequency
+	bcs pps8			; equal or above means it was reached
+	jmp pps9			; otherwise, it is still not reached yet
+	
+pps1	; current pitch is higher than the target pitch here
+	sbc trackn_portadepth,x		; subtract the portamento frequency offset from it
+	bcc pps8			; overflown? branch if the carry flag is clear
+	cmp trackn_portafrqc,x		; compare to the target frequency
+	bcs pps9			; equal or above means it was not yet reached
 pps8
-	lda trackn_portafrqc,x
+	lda trackn_portafrqc,x		; the target pitch was reached, load it in memory
 pps9
-	sta trackn_portafrqa,x
+	sta trackn_portafrqa,x		; update the current portamento pitch with the new pitch
 pp10
-	lda reg2
-	and #$01
-	beq pp11
-	lda trackn_portafrqa,x
-	clc
-	adc trackn_shiftfrq,x	
+	lda reg2			; instrument commands and distortion
+	and #$01			; Portamento bit
+	beq pp11			; if 0 it is not set and will be skipped
+	
+pp10a
+	lda trackn_portafrqa,x		; load the current portamento frequency in memory
+	clc				; clear the carry flag 
+	
+;		adc trackn_shiftfrq,x		; add to it the shiftfrq/vibrato pitch
+
 	;* TODO: add support for CMD2 offset, and fix vibrato when TableFreq is also involved, they have been ignored here!
-pp10a	
-	sta trackn_audf,x
+	;* looks like the CMD0, and CMD1 were also ignored??? but why? 
+	;* seems like the Table of Freqs mode is broken? Adding Negative values
+	
+	;* TEST, maybe this is an even better anti-overflow method? 
+	bpl pp10c 			; positive value is outside of the dangerous range and can be processed
+	adc trackn_shiftfrq,x		; add to it the shiftfrq/vibrato pitch
+	bmi pp10b 			; all good, there was no overflow!
+	lda #$FF			; lowest possible pitch
+pp10b
+	IFT FEAT_COMMAND2
+	clc
+	adc frqaddcmd2
+	bmi pp10d			; all good, there was no overflow!
+	lda #$FF			; lowest possible pitch	
+	EIF
+	bmi pp10d			; unconditional
+pp10c
+	adc trackn_shiftfrq,x		; add to it the shiftfrq/vibrato pitch
+	IFT FEAT_COMMAND2
+	clc
+	adc frqaddcmd2
+	EIF
+	;* TEST OVER
+	
+pp10d
+	sta trackn_audf,x		; update the channel AUDF with the new value if Portamento was processed 
 pp11
 	EIF
 
