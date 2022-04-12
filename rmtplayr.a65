@@ -1486,7 +1486,7 @@ cmd0a1subdone
 	jmp pp9			; done	
 	EIF
 	
-cmd0a2	
+cmd0a2	;* Sawtooth is so unlikely to even range the low #$FF frequencies that applying the vibrato fixes is pointless!
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 	cmp #$41		; 1.79mhz => Sawtooth?
 	bne cmd0a3		; no Sawtooth for sure
@@ -1503,14 +1503,40 @@ cmd0a2
 	EIF
 
 cmd0a3
-	lda (nr),y
-	clc
-	adc trackn_shiftfrq,x
-	IFT FEAT_COMMAND2
-	clc
-	adc frqaddcmd2
+;	lda (nr),y
+;	clc
+;	adc trackn_shiftfrq,x 
+;	IFT FEAT_COMMAND2
+;	clc
+;	adc frqaddcmd2
+;	EIF
+
+	;* Experimental fix: prevent AUDF overflows on detune/vibrato effects
+	lda (nr),y		; this is the actual note base frequency, or AUDF 
+	clc			; clear carry 
+	bpl cmd0a3c		;* if the value is already in the positive range, nothing to worry about!
+cmd0a3a				; #$FF to #$7F, especially around #$FF, better be cautious!	
+	sta tmp			; temporary backup before the offset calculations 
+	adc trackn_shiftfrq,x	; vibrato, and some other shifts use this value 
+	bmi cmd0a3b		; no overflow, we good!
+	lda tmp			; reload the frequency without being offset and use it directly instead 
+cmd0a3b
+	IFT FEAT_COMMAND2 	; second layer of protection, if vibrato and CMD2 were combined
+	sta tmp			; backup again before the CMD2 offset-- TODO: optimise better
+	clc			; clear carry again
+	adc frqaddcmd2		; if the CMD2 feature is also enabled, add that value into the offset as well 
+	bmi cmd0a4		; no overflow, we good!
+	lda tmp			; reload the frequency without being offset and use it directly instead 
+	EIF 
+	bmi cmd0a4		; finish from here like normal
+cmd0a3c			
+	adc trackn_shiftfrq,x	; vibrato, and some other shifts use this value 
+	IFT FEAT_COMMAND2 	; warning: in case of a overflow occuring again, this won't be protected this time!
+	clc			; clear carry again
+	adc frqaddcmd2		; if the CMD2 feature is also enabled, add that value into the offset as well 
 	EIF
-	
+cmd0a4	;* end of vibrato hack, will be branched here and finished like normal after that
+
 	IFT FEAT_TABLETYPE
 	jmp cmd0c
 cmd0b
@@ -1564,7 +1590,7 @@ cmd0b1subdone
 	jmp pp9			; done 	
 	EIF
 	
-cmd0b2	
+cmd0b2	;* Sawtooth is so unlikely to even range the low #$FF frequencies that applying the vibrato fixes is pointless!
 	IFT FEAT_FULL_SAWTOOTH&&FEAT_AUDCTLMANUALSET
 	cmp #$41		; 1.79mhz => Sawtooth?
 	bne cmd0b3		; no Sawtooth for sure 
@@ -1583,15 +1609,52 @@ cmd0b2
 	EIF
 
 cmd0b3
+;	lda trackn_shiftfrq,x
+;	clc
+;	adc trackn_tablenote,x
+;	clc
+;	adc (nr),y
+;	IFT FEAT_COMMAND2
+;	clc
+;	adc frqaddcmd2
+;	EIF
+
+	;* Experimental fix: prevent AUDF overflows on detune/vibrato effects
+	lda (nr),y		; this is the actual note base frequency, or AUDF 
+	clc
+	sta tmp			; temporary backup before the offset calculations 
+	bpl cmd0b3d		;* if the value is already in the positive range, nothing to worry about!
+cmd0b3a				; #$FF to #$7F, especially around #$FF, better be cautious!
+	adc trackn_shiftfrq,x
+	bmi cmd0b3b
+	lda tmp 		; needs to be improved... that's a dumb method for sure, lda and sta to the same place, aargh
+cmd0b3b
+	sta tmp
+	clc
+	adc trackn_tablenote,x
+	bmi cmd0b3c
+	lda tmp
+cmd0b3c
+	IFT FEAT_COMMAND2
+	sta tmp
+	clc
+	adc frqaddcmd2
+	bmi cmd0b4
+	lda tmp
+	EIF
+	bmi cmd0b4
+cmd0b3d 			
 	lda trackn_shiftfrq,x
 	clc
 	adc trackn_tablenote,x
 	clc
-	adc (nr),y
+	adc tmp
 	IFT FEAT_COMMAND2
 	clc
 	adc frqaddcmd2
 	EIF
+cmd0b4	;* end of vibrato hack, will be branched here and finished like normal after that
+
 	EIF
 	
 cmd0c
@@ -1637,6 +1700,7 @@ pp10
 	lda trackn_portafrqa,x
 	clc
 	adc trackn_shiftfrq,x	
+	;* TODO: add support for CMD2 offset, and fix vibrato when TableFreq is also involved, they have been ignored here!
 pp10a	
 	sta trackn_audf,x
 pp11
@@ -1705,6 +1769,7 @@ bs3
 
 ;* start of Autofilter code... a much more stripped down version
 ;* TODO: redesign the implementation to allow a much more precise manipulation to be achieved
+;* UPDATE: an attempt to mitigate overflows has been done here... 
 
 	IFT FEAT_FILTER 
 	ldx v_audctl 
@@ -1717,10 +1782,20 @@ qq1
 	beq qq2				; if the volume is 0, skip 
 	lda trackn_audf+0		; AUDF value from ch1 currently in memory 
 	clc				; clear the carry flag
+	bpl qq1a			; it's alright! carry on if the value is in the positive range
+	sta tmp				; quick backup first
+	adc trackn_filter+0		; add the frequency offset 
+	bmi qq1b			; all good, carry on!
+	lda tmp				; reload the backup value if it had overflown
+	sec				; set the carry flag first!
+	sbc trackn_filter+0		; subtract the frequency offset instead!
+	bmi qq1b			; finish like normal from here
+qq1a
 	adc trackn_filter+0		; add the frequency offset for the AUTOFILTER modulation into the ch1 frequency 
+qq1b
 	sta trackn_audf+2		; overwrite the ch3 frequency with the new offset frequency 
 	sty trackn_filter+0		; reset that value until a new CMD6 overwrites it
-qq1a
+qq1c
 	txa				; get the AUDCTL into the accumulator
 	ora #4				; set the High Pass Filter Ch1+3 bit into it
 	tax				; tramsfer back into X to process the next channel the exact same way
@@ -1735,10 +1810,20 @@ qq2
 	beq qq3
 	lda trackn_audf+1
 	clc
+	bpl qq2a
+	sta tmp
 	adc trackn_filter+1
+	bmi qq2b
+	lda tmp
+	sec
+	sbc trackn_filter+1
+	bmi qq2b
+qq2a
+	adc trackn_filter+1
+qq2b
 	sta trackn_audf+3
 	sty trackn_filter+1
-qq2a
+qq2c
 	txa
 	ora #2
 	tax
@@ -1747,9 +1832,10 @@ qq2a
 qq3
 	stx v_audctl
 	EIF
-	
+
 	IFT FEAT_FILTER&&TRACKS>4
 	ldx v_audctl2 
+qs1
 	IFT FEAT_FILTERG0R
 	lda trackn_command+0+4
 	bpl qs2
@@ -1758,10 +1844,20 @@ qq3
 	beq qs2
 	lda trackn_audf+0+4
 	clc
+	bpl qs1a
+	sta tmp
 	adc trackn_filter+0+4
+	bmi qs1b
+	lda tmp
+	sec
+	sbc trackn_filter+0+4
+	bmi qs1b
+qs1a	
+	adc trackn_filter+0+4
+qs1b
 	sta trackn_audf+2+4
 	sty trackn_filter+0+4
-qs1a
+qs1c
 	txa
 	ora #4
 	tax
@@ -1775,10 +1871,20 @@ qs2
 	beq qs3
 	lda trackn_audf+1+4
 	clc
+	bpl qs2a
+	sta tmp
 	adc trackn_filter+1+4
+	bmi qs2b
+	lda tmp 
+	sec
+	sbc trackn_filter+1+4
+	bmi qs2b 
+qs2a
+	adc trackn_filter+1+4
+qs2b
 	sta trackn_audf+3+4
 	sty trackn_filter+1+4
-qs2a
+qs2c
 	txa
 	ora #2
 	tax
