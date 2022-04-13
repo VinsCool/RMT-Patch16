@@ -1374,7 +1374,7 @@ cmd5ax
 cmd5a
 	lda trackn_portafrqa,x			; is the current frequency set to 0?
 	bne cmd5b				; if not, it's most likely correctly set
-	lda #0					; force the #$XY parameter to 0 to force Portamento to not run 
+	tay					; force the #$XY parameter to 0 to force Portamento to not run 
 	sta reg3				; it will be called again further below
 	lda trackn_portafrqc,x			; target frequency previously set
 	sta trackn_portafrqa,x			; overwrite forced on the current frequency, to avoid the "pitch from 0" bug
