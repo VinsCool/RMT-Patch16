@@ -332,6 +332,18 @@ ri1
 	EIF
 	jsr GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 	
+;	IFT FEAT_PORTAMENTO		;* WORKAROUND: overwrite the frequency on initialisation to avoid the "first portamento note from highest pitch" bug
+;	ldy #TRACKS-1			;* for some reason, this does not seem to work on the tracker side...
+;portafixinit
+;	lda trackn_portafrqc,y		; load target frequency 
+;	beq portafixinit_a 		; skip if 0, there was no portamento used 
+;	sta trackn_portafrqa,y		; overwrite current portamento frequency in memory
+;	sta trackn_audf,y		; also overwrite the actual channel output to be synced with the expected pitch 
+;portafixinit_a
+;	dey
+;	bpl portafixinit
+;	EIF
+	
 ;* end of rmt_init code... rmt_silence will always be executed after the JSR above.
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
@@ -1358,7 +1370,15 @@ cmd5ax
 	ldy reg3				; #$XY instrument parameter
 	bne cmd5a				; jump aheead if not zero 
 	sta trackn_portafrqa,x			; else, set the current portamento pitch instantly
+	;* BUG: Portamento is never initialised if the #$XY parameter is not on the very first player call! 
 cmd5a
+	lda trackn_portafrqa,x			; is the current frequency set to 0?
+	bne cmd5b				; if not, it's most likely correctly set
+	lda #0					; force the #$XY parameter to 0 to force Portamento to not run 
+	sta reg3				; it will be called again further below
+	lda trackn_portafrqc,x			; target frequency previously set
+	sta trackn_portafrqa,x			; overwrite forced on the current frequency, to avoid the "pitch from 0" bug
+cmd5b
 	tya					; transfer the #$XY parameter to the accumulator
 	lsr @					; divide by 16
 	lsr @
