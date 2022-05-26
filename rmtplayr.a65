@@ -332,18 +332,6 @@ ri1
 	EIF
 	jsr GetSongLineTrackLineInitOfNewSetInstrumentsOnlyRmtp3
 	
-;	IFT FEAT_PORTAMENTO		;* WORKAROUND: overwrite the frequency on initialisation to avoid the "first portamento note from highest pitch" bug
-;	ldy #TRACKS-1			;* for some reason, this does not seem to work on the tracker side...
-;portafixinit
-;	lda trackn_portafrqc,y		; load target frequency 
-;	beq portafixinit_a 		; skip if 0, there was no portamento used 
-;	sta trackn_portafrqa,y		; overwrite current portamento frequency in memory
-;	sta trackn_audf,y		; also overwrite the actual channel output to be synced with the expected pitch 
-;portafixinit_a
-;	dey
-;	bpl portafixinit
-;	EIF
-	
 ;* end of rmt_init code... rmt_silence will always be executed after the JSR above.
 	
 ;---------------------------------------------------------------------------------------------------------------------------------------------;
@@ -1328,22 +1316,28 @@ cmd5
 	EIF
 
 cmd5a0
-	lda (nr),y				; actual note from table
-	clc					; clear carry flag
-	
-;		adc trackn_tablenote,x			; frequency from table-- FIXME: might overflow!
+;	lda (nr),y				; actual note from table
+;	clc					; clear carry flag	
+;	adc trackn_tablenote,x			; frequency from table-- FIXME: might overflow!
 
-	bpl cmd5a0a				; positive range, nothing to worry about
-	adc trackn_tablenote,x			; add the frequency from table
-	bmi cmd5a0b				; no overflow, all good!
-	lda #$FF				; lowest possible pitch
-	bmi cmd5a0b				; unconditional
-	
+	lda (nr),y				; this is the actual note base frequency, or AUDF 
+	clc					; clear carry 
+	bpl cmd5a0b				; if the value is positive, branch and finish there
 cmd5a0a
-	adc trackn_tablenote,x			; add the frequency from table
+	adc trackn_tablenote,x
+	bvs cmd5ax
+	bmi cmd5ax
+	lda #$FF				; if overflow, force #$FF!
+	bne cmd5ax
 cmd5a0b
-	jmp cmd5ax				; process the remaining of the code there
+	adc trackn_tablenote,x
+	bvs cmd5ax
+	bpl cmd5ax
+	lda #0					; if overflow, force #$00! 
+	beq cmd5ax
+;	jmp cmd5ax				; process the remaining of the code there
 	EIF
+	
 cmd5a1
 	lda trackn_note,x			; current note
 	clc					; clear carry
@@ -1546,29 +1540,28 @@ cmd0a3
 ;	adc frqaddcmd2
 ;	EIF
 
-	;* Experimental fix: prevent AUDF overflows on detune/vibrato effects
+	lda trackn_shiftfrq,x	; vibrato, and some other shifts use this value 
+	IFT FEAT_COMMAND2 
+	clc			; clear carry 
+	adc frqaddcmd2		; if the CMD2 feature is also enabled, add that value as well 
+	EIF 
+	sta tmp			; temporary, for faster operation below
+cmd0a3a
 	lda (nr),y		; this is the actual note base frequency, or AUDF 
 	clc			; clear carry 
-	bpl cmd0a3c		;* if the value is already in the positive range, nothing to worry about!
-cmd0a3a				; #$FF to #$7F, especially around #$FF, better be cautious!	
-	adc trackn_shiftfrq,x	; vibrato, and some other shifts use this value 
-	bmi cmd0a3b		; no overflow, we good!
-	lda #$FF
+	bpl cmd0a3c		; if the value is positive, branch and finish there
 cmd0a3b
-	IFT FEAT_COMMAND2 	; second layer of protection, if vibrato and CMD2 were combined
-	clc			; clear carry again
-	adc frqaddcmd2		; if the CMD2 feature is also enabled, add that value into the offset as well 
-	bmi cmd0a4		; no overflow, we good!
-	lda #$FF
-	EIF 
-	bmi cmd0a4		; finish from here like normal
-cmd0a3c			
-	adc trackn_shiftfrq,x	; vibrato, and some other shifts use this value 
-	IFT FEAT_COMMAND2 	; warning: in case of a overflow occuring again, this won't be protected this time!
-	clc			; clear carry again
-	adc frqaddcmd2		; if the CMD2 feature is also enabled, add that value into the offset as well 
-	EIF
-cmd0a4	;* end of vibrato hack, will be branched here and finished like normal after that
+	adc tmp
+	bvs cmd0a4
+	bmi cmd0a4
+	lda #$FF		; if overflow, force #$FF!
+	bne cmd0a4
+cmd0a3c
+	adc tmp
+	bvs cmd0a4
+	bpl cmd0a4
+	lda #0			; if overflow, force #$00!
+cmd0a4 
 
 	IFT FEAT_TABLETYPE
 	jmp cmd0c
@@ -1652,39 +1645,29 @@ cmd0b3
 ;	adc frqaddcmd2
 ;	EIF
 
-	;* Experimental fix: prevent AUDF overflows on detune/vibrato effects
+	lda trackn_shiftfrq,x	; vibrato, and some other shifts use this value 
+	clc			; clear carry 
+	adc trackn_tablenote,x	; freq table
+	IFT FEAT_COMMAND2 
+	clc			; clear carry 
+	adc frqaddcmd2		; if the CMD2 feature is also enabled, add that value as well 
+	EIF 
+	sta tmp			; temporary, for faster operation below
+cmd0b3a
 	lda (nr),y		; this is the actual note base frequency, or AUDF 
-	clc
-	sta tmp			; temporary backup before the offset calculations 
-	bpl cmd0b3d		;* if the value is already in the positive range, nothing to worry about!
-cmd0b3a				; #$FF to #$7F, especially around #$FF, better be cautious!
-	adc trackn_shiftfrq,x
-	bmi cmd0b3b
-	lda #$FF
+	clc			; clear carry 
+	bpl cmd0b3c		; if the value is positive, branch and finish there
 cmd0b3b
-	clc
-	adc trackn_tablenote,x
-	bmi cmd0b3c
-	lda #$FF
-cmd0b3c
-	IFT FEAT_COMMAND2
-	clc
-	adc frqaddcmd2
-	bmi cmd0b4
-	lda #$FF
-	EIF
-	bmi cmd0b4
-cmd0b3d 			
-	lda trackn_shiftfrq,x
-	clc
-	adc trackn_tablenote,x
-	clc
 	adc tmp
-	IFT FEAT_COMMAND2
-	clc
-	adc frqaddcmd2
-	EIF
-cmd0b4	;* end of vibrato hack, will be branched here and finished like normal after that
+	bvs cmd0c
+	bmi cmd0c
+	lda #$FF		; if overflow, force #$FF!
+	bne cmd0c
+cmd0b3c
+	adc tmp
+	bvs cmd0c
+	bpl cmd0c
+	lda #0			; if overflow, force #$00! 
 
 	EIF
 	
@@ -1737,35 +1720,34 @@ pp10
 	beq pp11			; if 0 it is not set and will be skipped
 	
 pp10a
-	lda trackn_portafrqa,x		; load the current portamento frequency in memory
-	clc				; clear the carry flag 
-	
-;		adc trackn_shiftfrq,x		; add to it the shiftfrq/vibrato pitch
+;	lda trackn_portafrqa,x		; load the current portamento frequency in memory
+;	clc				; clear the carry flag 
+;	adc trackn_shiftfrq,x		; add to it the shiftfrq/vibrato pitch
 
 	;* TODO: add support for CMD2 offset, and fix vibrato when TableFreq is also involved, they have been ignored here!
 	;* looks like the CMD0, and CMD1 were also ignored??? but why? 
-	;* seems like the Table of Freqs mode is broken? Adding Negative values
-	
-	;* TEST, maybe this is an even better anti-overflow method? 
+	;* seems like the Table of Freqs mode is broken? Adding Negative values	
+
+	lda trackn_shiftfrq,x		; vibrato, and some other shifts use this value 
+	IFT FEAT_COMMAND2 
+	clc				; clear carry 
+	adc frqaddcmd2			; if the CMD2 feature is also enabled, add that value as well 
+	EIF 
+	sta tmp				; temporary, for faster operation below
+	lda trackn_portafrqa,x		; load the current portamento frequency in memory
+	clc				; clear the carry flag	
 	bpl pp10c 			; positive value is outside of the dangerous range and can be processed
-	adc trackn_shiftfrq,x		; add to it the shiftfrq/vibrato pitch
-	bmi pp10b 			; all good, there was no overflow!
-	lda #$FF			; lowest possible pitch
 pp10b
-	IFT FEAT_COMMAND2
-	clc
-	adc frqaddcmd2
-	bmi pp10d			; all good, there was no overflow!
-	lda #$FF			; lowest possible pitch	
-	EIF
-	bmi pp10d			; unconditional
+	adc tmp
+	bvs pp10d
+	bmi pp10d
+	lda #$FF			; if overflow, force #$FF!
+	bne pp10d
 pp10c
-	adc trackn_shiftfrq,x		; add to it the shiftfrq/vibrato pitch
-	IFT FEAT_COMMAND2
-	clc
-	adc frqaddcmd2
-	EIF
-	;* TEST OVER
+	adc tmp
+	bvs pp10d
+	bpl pp10d
+	lda #0				; if overflow, force #$00! 
 	
 pp10d
 	sta trackn_audf,x		; update the channel AUDF with the new value if Portamento was processed 
