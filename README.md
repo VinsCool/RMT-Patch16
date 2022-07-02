@@ -1,3 +1,5 @@
+--- NOTE FROM JULY 1ST 2022: THIS REPOSITORY IS NOW ARCHIVED, AND LEFT FOR REFERENCE PURPOSE ONLY ---
+
 # RMT-Patch16
 Experimental Raster Music Tracker driver patch.
 
